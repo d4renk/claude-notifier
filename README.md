@@ -44,8 +44,14 @@ codesign --force --deep --sign - ~/.claude/apps/ClaudeNotifier.app
 # 自定义标题和消息
 ClaudeNotifier -t "标题" -m "消息内容"
 
-# 自定义声音
-ClaudeNotifier -t "标题" -m "消息" -s "Ping"
+# 使用系统声音
+ClaudeNotifier -t "标题" -m "消息" -s "Hero"
+
+# 使用自定义音效文件
+ClaudeNotifier -f ~/Music/notification.aiff
+
+# 静音模式
+ClaudeNotifier --no-sound
 
 # 查看帮助
 ClaudeNotifier --help
@@ -53,12 +59,26 @@ ClaudeNotifier --help
 
 ### 参数
 
-| 参数            | 说明     | 默认值           |
-| --------------- | -------- | ---------------- |
-| `-t, --title`   | 通知标题 | "Claude Code"    |
-| `-m, --message` | 通知消息 | "Task completed" |
-| `-s, --sound`   | 声音名称 | "Glass"          |
-| `-h, --help`    | 显示帮助 | -                |
+| 参数               | 说明           | 默认值           |
+| ------------------ | -------------- | ---------------- |
+| `-t, --title`      | 通知标题       | "Claude Code"    |
+| `-m, --message`    | 通知消息       | "Task completed" |
+| `-s, --sound`      | 系统声音名称   | "Glass"          |
+| `-f, --sound-file` | 自定义音效文件 | -                |
+| `--no-sound`       | 禁用通知声音   | -                |
+| `-h, --help`       | 显示帮助       | -                |
+
+### 系统声音
+
+可用的系统声音：`Basso`, `Blow`, `Bottle`, `Frog`, `Funk`, `Glass`, `Hero`, `Morse`, `Ping`, `Pop`, `Purr`, `Sosumi`, `Submarine`, `Tink`
+
+### 自定义音效
+
+支持的格式：`.aiff`, `.wav`, `.caf`, `.m4a`
+
+使用 `-f` 参数时，音效文件会自动复制到 `~/Library/Sounds/` 目录。
+
+**注意**：音效文件长度必须小于 30 秒。
 
 ## 首次使用
 
