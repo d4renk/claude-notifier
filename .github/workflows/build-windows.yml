@@ -1,0 +1,90 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "claude-notifier-windows/**"
+      - ".github/workflows/build-windows.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "claude-notifier-windows/**"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            claude-notifier-windows/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('claude-notifier-windows/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check formatting
+        working-directory: claude-notifier-windows
+        run: cargo fmt --check
+
+      - name: Run clippy
+        working-directory: claude-notifier-windows
+        run: cargo clippy -- -D warnings
+
+      - name: Build release
+        working-directory: claude-notifier-windows
+        run: cargo build --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: claude-notifier-windows
+          path: claude-notifier-windows/target/release/claude-notifier.exe
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: windows-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: claude-notifier-windows
+          path: dist
+
+      - name: Get version
+        id: version
+        working-directory: claude-notifier-windows
+        shell: pwsh
+        run: |
+          $version = (Get-Content Cargo.toml | Select-String 'version = "(.+)"' | ForEach-Object { $_.Matches.Groups[1].Value } | Select-Object -First 1)
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: dist/claude-notifier.exe
+          name: Windows v${{ steps.version.outputs.version }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
