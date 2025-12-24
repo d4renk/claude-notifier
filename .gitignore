@@ -7,8 +7,19 @@ ClaudeNotifier
 .DS_Store
 *.app/
 
+# Windows / Rust
+claude-notifier-windows/target/
+claude-notifier-windows/dist/
+claude-notifier-windows/*.zip
+*.exe
+*.pdb
+
 # IDE
 .vscode/
 .idea/
 *.xcodeproj/
 *.xcworkspace/
+
+# Temporary files
+*.log
+*.tmp
