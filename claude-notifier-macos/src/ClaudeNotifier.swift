@@ -140,6 +140,19 @@ private func axWindows(for appElement: AXUIElement) -> [AXUIElement] {
     return value as? [AXUIElement] ?? []
 }
 
+/// 转义 AppleScript 字符串，防止注入攻击
+private func escapeAppleScriptString(_ str: String) -> String {
+    return str
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+}
+
+/// 转义 Shell 参数，防止命令注入
+private func escapeShellArg(_ str: String) -> String {
+    // 使用单引号包裹，并转义内部的单引号
+    return "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
 /// 从路径中提取所有有意义的组件用于匹配
 private func extractPathComponents(_ path: String) -> [String] {
     let components = path.split(separator: "/").map(String.init)
@@ -263,16 +276,16 @@ private func focusWindowViaAppleScript(bundleId: String, projectPath: String?, p
     }
     fputs("[DEBUG] focusWindowViaAppleScript: appName=\(appName)\n", stderr)
 
-    // 构建匹配条件
+    // 构建匹配条件（转义防止注入）
     var matchConditions: [String] = []
     if let name = projectName, !name.isEmpty {
-        matchConditions.append("name of w contains \"\(name)\"")
+        matchConditions.append("name of w contains \"\(escapeAppleScriptString(name))\"")
     }
     if let path = projectPath, !path.isEmpty {
         // 提取路径组件用于匹配
         let components = extractPathComponents(path)
         for comp in components {
-            matchConditions.append("name of w contains \"\(comp)\"")
+            matchConditions.append("name of w contains \"\(escapeAppleScriptString(comp))\"")
         }
     }
 
@@ -280,7 +293,7 @@ private func focusWindowViaAppleScript(bundleId: String, projectPath: String?, p
 
     let script = """
     tell application "System Events"
-        tell process "\(appName)"
+        tell process "\(escapeAppleScriptString(appName))"
             set frontmost to true
             set windowList to every window
             repeat with w in windowList
@@ -315,16 +328,15 @@ private func focusWindowViaAppleScript(bundleId: String, projectPath: String?, p
     return false
 }
 
-/// 使用 CG API 获取窗口列表并通过匹配找到目标窗口名
-private func findBestWindowNameViaCGAPI(pid: pid_t, projectPath: String?, projectName: String?) -> String? {
-    fputs("[DEBUG] findBestWindowNameViaCGAPI: pid=\(pid)\n", stderr)
-
+/// 使用 CG API 扫描窗口列表，返回最佳匹配的窗口名和分数
+/// 统一的窗口扫描逻辑，供其他函数复用
+private func scanWindowsViaCGAPI(pid: pid_t, projectPath: String?, projectName: String?) -> (windowName: String, score: Int)? {
     guard let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
-        fputs("[DEBUG] findBestWindowNameViaCGAPI: failed to get window list\n", stderr)
+        fputs("[DEBUG] scanWindowsViaCGAPI: failed to get window list\n", stderr)
         return nil
     }
 
-    var candidates: [(windowName: String, score: Int)] = []
+    var bestMatch: (windowName: String, score: Int)? = nil
 
     for window in windowList {
         guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32, ownerPID == pid else {
@@ -334,60 +346,41 @@ private func findBestWindowNameViaCGAPI(pid: pid_t, projectPath: String?, projec
         let windowName = window[kCGWindowName as String] as? String ?? ""
         guard !windowName.isEmpty else { continue }
 
-        // 计算匹配分数
         let score = calculateMatchScore(windowTitle: windowName, document: nil, projectPath: projectPath, projectName: projectName)
 
-        fputs("[DEBUG] findBestWindowNameViaCGAPI: window '\(windowName)' score=\(score)\n", stderr)
-
-        if score > 0 {
-            candidates.append((windowName, score))
+        if score > 0 && (bestMatch == nil || score > bestMatch!.score) {
+            bestMatch = (windowName, score)
         }
     }
 
-    // 返回分数最高的窗口名
-    if let best = candidates.max(by: { $0.score < $1.score }) {
-        fputs("[DEBUG] findBestWindowNameViaCGAPI: best match '\(best.windowName)' score=\(best.score)\n", stderr)
-        return best.windowName
+    if let best = bestMatch {
+        fputs("[DEBUG] scanWindowsViaCGAPI: best match '\(best.windowName)' score=\(best.score)\n", stderr)
     }
+    return bestMatch
+}
 
-    return nil
+/// 使用 CG API 获取最佳匹配的窗口名
+private func findBestWindowNameViaCGAPI(pid: pid_t, projectPath: String?, projectName: String?) -> String? {
+    fputs("[DEBUG] findBestWindowNameViaCGAPI: pid=\(pid)\n", stderr)
+    return scanWindowsViaCGAPI(pid: pid, projectPath: projectPath, projectName: projectName)?.windowName
 }
 
 /// 检查是否存在精确匹配项目的窗口（用于决定是否使用 CLI）
-/// 返回最高匹配分数，只有分数 >= 50 才认为是精确匹配
-/// 分数 30（父目录匹配）不足以触发 CLI，因为可能打开错误的目录
+/// 只有分数 >= 50 才认为是精确匹配（标题精确匹配或包含项目名）
+/// 分数 30（父目录匹配）不足以触发 CLI，避免打开错误目录
 private func windowExistsForProject(pid: pid_t, projectPath: String?, projectName: String?) -> Bool {
-    guard let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+    guard let result = scanWindowsViaCGAPI(pid: pid, projectPath: projectPath, projectName: projectName) else {
+        fputs("[DEBUG] windowExistsForProject: no windows found\n", stderr)
         return false
     }
 
-    var bestScore = 0
-    var bestWindow = ""
-
-    for window in windowList {
-        guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32, ownerPID == pid else {
-            continue
-        }
-
-        let windowName = window[kCGWindowName as String] as? String ?? ""
-        guard !windowName.isEmpty else { continue }
-
-        let score = calculateMatchScore(windowTitle: windowName, document: nil, projectPath: projectPath, projectName: projectName)
-        if score > bestScore {
-            bestScore = score
-            bestWindow = windowName
-        }
-    }
-
-    // 只有分数 >= 50 才认为是精确匹配（标题精确匹配或包含项目名）
-    // 分数 30（父目录匹配）不足以触发 CLI，避免打开错误目录
     let threshold = 50
-    if bestScore >= threshold {
-        fputs("[DEBUG] windowExistsForProject: found matching window '\(bestWindow)' with score=\(bestScore) (>= \(threshold))\n", stderr)
+    if result.score >= threshold {
+        fputs("[DEBUG] windowExistsForProject: found matching window '\(result.windowName)' with score=\(result.score) (>= \(threshold))\n", stderr)
         return true
     }
 
-    fputs("[DEBUG] windowExistsForProject: best score=\(bestScore) < \(threshold), not precise enough for CLI\n", stderr)
+    fputs("[DEBUG] windowExistsForProject: best score=\(result.score) < \(threshold), not precise enough for CLI\n", stderr)
     return false
 }
 
@@ -397,11 +390,11 @@ private func raiseWindowByName(appName: String, windowName: String) -> Bool {
 
     let script = """
     tell application "System Events"
-        tell process "\(appName)"
+        tell process "\(escapeAppleScriptString(appName))"
             set frontmost to true
             set windowList to every window
             repeat with w in windowList
-                if name of w is "\(windowName)" then
+                if name of w is "\(escapeAppleScriptString(windowName))" then
                     perform action "AXRaise" of w
                     return "matched"
                 end if
@@ -425,19 +418,6 @@ private func raiseWindowByName(appName: String, windowName: String) -> Bool {
     return false
 }
 
-/// 获取 Zed 当前焦点窗口标题
-private func getZedFocusedWindowTitle(pid: pid_t) -> String? {
-    let appElement = AXUIElementCreateApplication(pid)
-    var focused: CFTypeRef?
-    let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focused)
-    guard result == .success, focused != nil else { return nil }
-
-    let fw = focused as AnyObject
-    var title: CFTypeRef?
-    AXUIElementCopyAttributeValue(fw as! AXUIElement, kAXTitleAttribute as CFString, &title)
-    return title as? String
-}
-
 /// 使用应用自身的 CLI 切换窗口（跨 Space 场景）
 /// 配置文件: ~/.claude/notifier-app-commands.json
 /// 格式: { "bundleId": "open command with {path} placeholder" }
@@ -457,8 +437,9 @@ private func focusWindowViaCLI(bundleId: String, projectPath: String) -> Bool {
         return false
     }
 
-    // 替换 {path} 占位符
-    let command = commandTemplate.replacingOccurrences(of: "{path}", with: projectPath)
+    // 替换 {path} 占位符（转义防止命令注入）
+    let escapedPath = escapeShellArg(projectPath)
+    let command = commandTemplate.replacingOccurrences(of: "{path}", with: escapedPath)
     fputs("[DEBUG] focusWindowViaCLI: executing '\(command)'\n", stderr)
 
     // 执行命令
@@ -604,11 +585,11 @@ func sendNotification(title: String, message: String, sound: String?, soundFile:
 
     let semaphore = DispatchSemaphore(value: 0)
 
-    // 处理自定义音效文件
-    var soundName = sound ?? "Glass"
+    // 处理音效：优先自定义文件，其次指定声音，nil 表示静音
+    var effectiveSoundName: String? = sound
     if let file = soundFile {
         if let installed = installCustomSound(from: file) {
-            soundName = installed
+            effectiveSoundName = installed
         }
     }
 
@@ -629,7 +610,10 @@ func sendNotification(title: String, message: String, sound: String?, soundFile:
         content.title = title
         content.body = message
         content.userInfo = userInfo
-        content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: soundName))
+        // 仅当 effectiveSoundName 非 nil 时才设置声音（支持 --no-sound 静音）
+        if let soundName = effectiveSoundName {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: soundName))
+        }
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,

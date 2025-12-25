@@ -131,16 +131,16 @@ ClaudeNotifier 依次尝试以下方法：
 
 ```json
 {
-  "dev.zed.Zed": "zed \"{path}\"",
-  "com.microsoft.VSCode": "code \"{path}\"",
-  "com.todesktop.230313mzl4w4u92": "cursor \"{path}\""
+  "dev.zed.Zed": "zed {path}",
+  "com.microsoft.VSCode": "code {path}",
+  "com.todesktop.230313mzl4w4u92": "cursor {path}"
 }
 ```
 
 **配置说明**：
 
 - Key：应用的 Bundle ID
-- Value：打开项目的 CLI 命令，`{path}` 会替换为项目路径
+- Value：打开项目的 CLI 命令，`{path}` 会替换为项目路径（自动转义，无需加引号）
 - **安全机制**：只有当目标项目窗口已存在时才会调用 CLI，避免意外打开新窗口
 
 ### 权限要求
@@ -383,9 +383,9 @@ rm -f ~/Library/Sounds/claude-*.aiff
 ```bash
 cat > ~/.claude/notifier-app-commands.json << 'EOF'
 {
-  "dev.zed.Zed": "zed \"{path}\"",
-  "com.microsoft.VSCode": "code \"{path}\"",
-  "com.todesktop.230313mzl4w4u92": "cursor \"{path}\""
+  "dev.zed.Zed": "zed {path}",
+  "com.microsoft.VSCode": "code {path}",
+  "com.todesktop.230313mzl4w4u92": "cursor {path}"
 }
 EOF
 ```

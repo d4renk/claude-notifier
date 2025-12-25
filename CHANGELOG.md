@@ -27,11 +27,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - 修复 Zed 多窗口场景下跳转到错误窗口的问题
 - 修复点击通知后打开新窗口而非聚焦现有窗口的问题
+- 修复 `--no-sound` 参数无效的问题（静音模式现在正常工作）
+
+### Security
+
+- 添加 AppleScript 字符串转义，防止通过恶意项目名/路径注入代码
+- 添加 Shell 参数转义，防止通过 CLI 命令模板注入恶意命令
+- 配置文件 `{path}` 占位符现在自动转义，无需手动加引号
 
 ### Performance
 
 - 优化点击跳转响应速度
 - 使用应用原生 CLI 替代 CGEvent 点击方案
+- 合并重复的 CG 窗口扫描逻辑，减少系统调用
+- 移除未使用的 `getZedFocusedWindowTitle` 函数
 
 ## [0.1.0] - 2024-12-20
 
