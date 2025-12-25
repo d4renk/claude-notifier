@@ -2,6 +2,7 @@ import Foundation
 import UserNotifications
 import AppKit
 import ApplicationServices
+import CoreGraphics
 
 private enum NotificationUserInfoKey {
     static let projectPath = "projectPath"
@@ -142,42 +143,50 @@ private func axWindows(for appElement: AXUIElement) -> [AXUIElement] {
 /// 从路径中提取所有有意义的组件用于匹配
 private func extractPathComponents(_ path: String) -> [String] {
     let components = path.split(separator: "/").map(String.init)
-    // 过滤掉太短或太通用的组件
     return components.filter { comp in
         comp.count >= 2 && !["Users", "home", "var", "tmp", "usr", "opt"].contains(comp)
     }
 }
 
-/// 检查标题是否与路径的任何组件匹配
-private func titleMatchesPath(title: String, projectPath: String?, projectName: String?) -> Bool {
-    guard let title = Optional(title), !title.isEmpty else { return false }
+/// 检查窗口名是否是项目路径的父目录
+/// 例如：窗口名 ".claude"，项目路径 "/Users/xxx/.claude/repos/project" → 返回 true
+private func isWindowParentOfProject(windowTitle: String, projectPath: String) -> Bool {
+    let pathComponents = projectPath.split(separator: "/").map(String.init)
+    // 检查窗口名是否是路径中的某个目录组件
+    return pathComponents.contains { $0 == windowTitle }
+}
 
-    // 直接匹配项目名
-    if let name = projectName, !name.isEmpty {
-        if title.range(of: name, options: .caseInsensitive) != nil {
-            return true
+/// 计算窗口与项目的匹配分数（分数越高匹配越精确）
+private func calculateMatchScore(windowTitle: String?, document: String?, projectPath: String?, projectName: String?) -> Int {
+    var score = 0
+
+    // 1. 完整文档路径匹配（最高优先级：100分）
+    if let doc = document, let path = projectPath, !doc.isEmpty, !path.isEmpty {
+        if doc.lowercased().contains(path.lowercased()) {
+            score += 100
         }
     }
 
-    // 检查标题是否在路径中出现（反向匹配）
-    // 例如：标题=".claude"，路径="/Users/xxx/.claude/repos/project"
-    if let path = projectPath, !path.isEmpty {
+    // 2. 标题精确匹配项目名（高优先级：50分）
+    if let title = windowTitle, let name = projectName, !title.isEmpty, !name.isEmpty {
         let titleLower = title.lowercased()
-        let pathLower = path.lowercased()
-        if pathLower.contains(titleLower) {
-            return true
-        }
-
-        // 提取路径组件并检查是否有匹配
-        let components = extractPathComponents(path)
-        for comp in components {
-            if title.range(of: comp, options: .caseInsensitive) != nil {
-                return true
-            }
+        let nameLower = name.lowercased()
+        if titleLower == nameLower {
+            score += 50
+        } else if titleLower.contains(nameLower) || nameLower.contains(titleLower) {
+            score += 25
         }
     }
 
-    return false
+    // 3. 窗口名是项目路径的父目录（中优先级：30分）
+    // 例如：窗口 ".claude" 包含项目 "/Users/xxx/.claude/repos/project"
+    if let title = windowTitle, let path = projectPath, !title.isEmpty, !path.isEmpty {
+        if isWindowParentOfProject(windowTitle: title, projectPath: path) {
+            score += 30
+        }
+    }
+
+    return score
 }
 
 private func focusWindow(pid: pid_t, projectPath: String?, projectName: String?) -> Bool {
@@ -198,33 +207,30 @@ private func focusWindow(pid: pid_t, projectPath: String?, projectName: String?)
         return false
     }
 
+    // 使用加权匹配：计算每个窗口的匹配分数，选择最高分的窗口
+    var bestMatch: (window: AXUIElement, score: Int, index: Int)? = nil
+
     for (index, window) in windows.enumerated() {
         let title = axStringAttribute(window, kAXTitleAttribute as CFString)
         let document = axStringAttribute(window, kAXDocumentAttribute as CFString)
-        fputs("[DEBUG] focusWindow: window[\(index)] title=\(title ?? "nil"), document=\(document ?? "nil")\n", stderr)
+        let score = calculateMatchScore(windowTitle: title, document: document, projectPath: projectPath, projectName: projectName)
 
-        // 优先通过 AXDocument 匹配
-        let matchesDocument = projectPath.flatMap { path in
-            guard let doc = document else { return false }
-            return doc.range(of: path, options: .caseInsensitive) != nil
-        } ?? false
+        fputs("[DEBUG] focusWindow: window[\(index)] title=\(title ?? "nil"), document=\(document ?? "nil"), score=\(score)\n", stderr)
 
-        // 使用改进的匹配逻辑：检查标题是否在路径中出现
-        let matchesTitle = title.flatMap { t in
-            titleMatchesPath(title: t, projectPath: projectPath, projectName: projectName)
-        } ?? false
-
-        fputs("[DEBUG] focusWindow: matchesDocument=\(matchesDocument), matchesTitle=\(matchesTitle)\n", stderr)
-
-        if matchesDocument || matchesTitle {
-            fputs("[DEBUG] focusWindow: match found, raising window...\n", stderr)
-            let raiseResult = AXUIElementPerformAction(window, kAXRaiseAction as CFString)
-            fputs("[DEBUG] focusWindow: AXRaiseAction result=\(raiseResult.rawValue)\n", stderr)
-            if raiseResult != .success {
-                fputs("[DEBUG] focusWindow: AXRaiseAction failed: \(raiseResult.rawValue)\n", stderr)
-            }
-            return raiseResult == .success
+        if score > 0 && (bestMatch == nil || score > bestMatch!.score) {
+            bestMatch = (window, score, index)
         }
+    }
+
+    // 选择最佳匹配的窗口
+    if let best = bestMatch {
+        fputs("[DEBUG] focusWindow: best match is window[\(best.index)] with score=\(best.score), raising...\n", stderr)
+        let raiseResult = AXUIElementPerformAction(best.window, kAXRaiseAction as CFString)
+        fputs("[DEBUG] focusWindow: AXRaiseAction result=\(raiseResult.rawValue)\n", stderr)
+        if raiseResult != .success {
+            fputs("[DEBUG] focusWindow: AXRaiseAction failed: \(raiseResult.rawValue)\n", stderr)
+        }
+        return raiseResult == .success
     }
 
     // 没有找到匹配的窗口，但至少 raise 第一个窗口
@@ -314,6 +320,190 @@ private func focusWindowViaAppleScript(bundleId: String, projectPath: String?, p
     return false
 }
 
+/// 使用 CG API 获取窗口列表并通过匹配找到目标窗口名
+private func findBestWindowNameViaCGAPI(pid: pid_t, projectPath: String?, projectName: String?) -> String? {
+    fputs("[DEBUG] findBestWindowNameViaCGAPI: pid=\(pid)\n", stderr)
+
+    guard let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+        fputs("[DEBUG] findBestWindowNameViaCGAPI: failed to get window list\n", stderr)
+        return nil
+    }
+
+    var candidates: [(windowName: String, score: Int)] = []
+
+    for window in windowList {
+        guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32, ownerPID == pid else {
+            continue
+        }
+
+        let windowName = window[kCGWindowName as String] as? String ?? ""
+        guard !windowName.isEmpty else { continue }
+
+        // 计算匹配分数
+        let score = calculateMatchScore(windowTitle: windowName, document: nil, projectPath: projectPath, projectName: projectName)
+
+        fputs("[DEBUG] findBestWindowNameViaCGAPI: window '\(windowName)' score=\(score)\n", stderr)
+
+        if score > 0 {
+            candidates.append((windowName, score))
+        }
+    }
+
+    // 返回分数最高的窗口名
+    if let best = candidates.max(by: { $0.score < $1.score }) {
+        fputs("[DEBUG] findBestWindowNameViaCGAPI: best match '\(best.windowName)' score=\(best.score)\n", stderr)
+        return best.windowName
+    }
+
+    return nil
+}
+
+/// 通过 AppleScript 使用窗口名 raise 指定窗口
+private func raiseWindowByName(appName: String, windowName: String) -> Bool {
+    fputs("[DEBUG] raiseWindowByName: app=\(appName), window=\(windowName)\n", stderr)
+
+    let script = """
+    tell application "System Events"
+        tell process "\(appName)"
+            set frontmost to true
+            set windowList to every window
+            repeat with w in windowList
+                if name of w is "\(windowName)" then
+                    perform action "AXRaise" of w
+                    return "matched"
+                end if
+            end repeat
+        end tell
+    end tell
+    return "not_found"
+    """
+
+    var error: NSDictionary?
+    if let appleScript = NSAppleScript(source: script) {
+        let result = appleScript.executeAndReturnError(&error)
+        if let error = error {
+            fputs("[DEBUG] raiseWindowByName: error=\(error)\n", stderr)
+            return false
+        }
+        let resultStr = result.stringValue ?? "unknown"
+        fputs("[DEBUG] raiseWindowByName: result=\(resultStr)\n", stderr)
+        return resultStr == "matched"
+    }
+    return false
+}
+
+/// 获取 Zed 当前焦点窗口标题
+private func getZedFocusedWindowTitle(pid: pid_t) -> String? {
+    let appElement = AXUIElementCreateApplication(pid)
+    var focused: CFTypeRef?
+    let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focused)
+    guard result == .success, focused != nil else { return nil }
+
+    let fw = focused as AnyObject
+    var title: CFTypeRef?
+    AXUIElementCopyAttributeValue(fw as! AXUIElement, kAXTitleAttribute as CFString, &title)
+    return title as? String
+}
+
+/// 通过 CGEvent 点击目标窗口来直接聚焦（Zed 专用）
+/// 使用 CGWindowListCopyWindowInfo 获取窗口信息，计算安全的点击位置
+private func focusZedWindowViaCGEvent(pid: pid_t, projectPath: String, projectName: String?) -> Bool {
+    fputs("[DEBUG] focusZedWindowViaCGEvent: path=\(projectPath), name=\(projectName ?? "nil")\n", stderr)
+
+    guard let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
+        fputs("[DEBUG] focusZedWindowViaCGEvent: failed to get window list\n", stderr)
+        return false
+    }
+
+    // 收集该进程的所有窗口及其匹配分数
+    var candidates: [(windowName: String, bounds: CGRect, score: Int)] = []
+    let pathComponents = projectPath.split(separator: "/").map(String.init)
+
+    for window in windowList {
+        guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32, ownerPID == pid else { continue }
+        guard let windowName = window[kCGWindowName as String] as? String, !windowName.isEmpty else { continue }
+        guard let boundsDict = window[kCGWindowBounds as String] as? [String: CGFloat] else { continue }
+
+        let bounds = CGRect(
+            x: boundsDict["X"] ?? 0,
+            y: boundsDict["Y"] ?? 0,
+            width: boundsDict["Width"] ?? 0,
+            height: boundsDict["Height"] ?? 0
+        )
+
+        // 忽略太小的窗口（可能是弹出菜单等）
+        guard bounds.width > 100 && bounds.height > 100 else { continue }
+
+        // 计算匹配分数
+        var score = 0
+
+        // 精确匹配项目名
+        if let name = projectName, windowName == name {
+            score += 100
+        } else if let name = projectName, windowName.contains(name) {
+            score += 50
+        }
+
+        // 窗口名是项目路径的某个组件（父目录匹配）
+        if pathComponents.contains(windowName) {
+            score += 30
+        }
+
+        fputs("[DEBUG] focusZedWindowViaCGEvent: window '\(windowName)' bounds=\(bounds) score=\(score)\n", stderr)
+
+        if score > 0 {
+            candidates.append((windowName, bounds, score))
+        }
+    }
+
+    guard let best = candidates.max(by: { $0.score < $1.score }) else {
+        fputs("[DEBUG] focusZedWindowViaCGEvent: no matching window found\n", stderr)
+        return false
+    }
+
+    fputs("[DEBUG] focusZedWindowViaCGEvent: best match '\(best.windowName)' score=\(best.score)\n", stderr)
+
+    // 检查当前窗口是否已经是目标
+    if let current = getZedFocusedWindowTitle(pid: pid), current == best.windowName {
+        fputs("[DEBUG] focusZedWindowViaCGEvent: already on target window\n", stderr)
+        return true
+    }
+
+    // 计算安全的点击位置：标题栏中央（距顶部 15 像素）
+    let clickX = best.bounds.origin.x + best.bounds.width / 2
+    let clickY = best.bounds.origin.y + 15  // 标题栏区域
+
+    fputs("[DEBUG] focusZedWindowViaCGEvent: clicking at (\(clickX), \(clickY))\n", stderr)
+
+    // 创建并发送鼠标点击事件
+    let clickPoint = CGPoint(x: clickX, y: clickY)
+
+    guard let mouseDown = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: clickPoint, mouseButton: .left),
+          let mouseUp = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: clickPoint, mouseButton: .left) else {
+        fputs("[DEBUG] focusZedWindowViaCGEvent: failed to create CGEvent\n", stderr)
+        return false
+    }
+
+    mouseDown.post(tap: .cghidEventTap)
+    Thread.sleep(forTimeInterval: 0.05)
+    mouseUp.post(tap: .cghidEventTap)
+
+    fputs("[DEBUG] focusZedWindowViaCGEvent: click sent successfully\n", stderr)
+
+    // 验证是否成功切换
+    Thread.sleep(forTimeInterval: 0.1)
+    if let current = getZedFocusedWindowTitle(pid: pid) {
+        fputs("[DEBUG] focusZedWindowViaCGEvent: after click, current window: '\(current)'\n", stderr)
+        if current == best.windowName {
+            fputs("[DEBUG] focusZedWindowViaCGEvent: successfully focused target window\n", stderr)
+            return true
+        }
+    }
+
+    // 即使验证失败，点击可能已经生效
+    return true
+}
+
 private func focusHostApp(hostBundleId: String, projectPath: String?, projectName: String?) {
     fputs("[DEBUG] focusHostApp: bundleId=\(hostBundleId)\n", stderr)
 
@@ -335,21 +525,39 @@ private func focusHostApp(hostBundleId: String, projectPath: String?, projectNam
     }
     fputs("[DEBUG] focusHostApp: accessibility permission granted\n", stderr)
 
-    // 方法 1: 尝试 AX API（先尝试，失败后重试）
+    // 方法 1: 尝试 AX API
     for attempt in 1...2 {
         let result = focusWindow(pid: app.processIdentifier, projectPath: projectPath, projectName: projectName)
         if result {
             fputs("[DEBUG] focusHostApp: AX API succeeded on attempt \(attempt)\n", stderr)
             return
         }
-        // 仅在失败时等待后重试
         if attempt < 2 {
             Thread.sleep(forTimeInterval: 0.15)
         }
     }
 
-    // 方法 2: 尝试 AppleScript（通过 System Events）
-    fputs("[DEBUG] focusHostApp: AX API failed, trying AppleScript...\n", stderr)
+    // 方法 2: 对于 Zed，使用 CGEvent 直接点击目标窗口
+    if hostBundleId == "dev.zed.Zed", let path = projectPath, !path.isEmpty {
+        fputs("[DEBUG] focusHostApp: AX API failed, trying Zed CGEvent click...\n", stderr)
+        if focusZedWindowViaCGEvent(pid: app.processIdentifier, projectPath: path, projectName: projectName) {
+            fputs("[DEBUG] focusHostApp: Zed CGEvent click succeeded\n", stderr)
+            return
+        }
+    }
+
+    // 方法 3: 使用 CG API 找到窗口名，然后通过 AppleScript raise
+    fputs("[DEBUG] focusHostApp: trying CG API + AppleScript...\n", stderr)
+    if let windowName = findBestWindowNameViaCGAPI(pid: app.processIdentifier, projectPath: projectPath, projectName: projectName),
+       let appName = getAppName(fromBundleId: hostBundleId) {
+        if raiseWindowByName(appName: appName, windowName: windowName) {
+            fputs("[DEBUG] focusHostApp: CG API + AppleScript succeeded\n", stderr)
+            return
+        }
+    }
+
+    // 方法 4: 尝试通用 AppleScript
+    fputs("[DEBUG] focusHostApp: trying generic AppleScript...\n", stderr)
     if focusWindowViaAppleScript(bundleId: hostBundleId, projectPath: projectPath, projectName: projectName) {
         fputs("[DEBUG] focusHostApp: AppleScript succeeded\n", stderr)
         return
