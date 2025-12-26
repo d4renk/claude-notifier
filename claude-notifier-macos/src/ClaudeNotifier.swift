@@ -9,6 +9,9 @@ private enum NotificationUserInfoKey {
     static let projectName = "projectName"
     static let hostBundleId = "hostBundleId"
     static let tty = "tty"
+    static let status = "status"
+    static let subtitle = "subtitle"
+    static let duration = "duration"
 }
 
 final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
@@ -140,6 +143,19 @@ private func axWindows(for appElement: AXUIElement) -> [AXUIElement] {
     return value as? [AXUIElement] ?? []
 }
 
+/// 转义 AppleScript 字符串，防止注入攻击
+private func escapeAppleScriptString(_ str: String) -> String {
+    return str
+        .replacingOccurrences(of: "\\", with: "\\\\")
+        .replacingOccurrences(of: "\"", with: "\\\"")
+}
+
+/// 转义 Shell 参数，防止命令注入
+private func escapeShellArg(_ str: String) -> String {
+    // 使用单引号包裹，并转义内部的单引号
+    return "'" + str.replacingOccurrences(of: "'", with: "'\\''") + "'"
+}
+
 /// 从路径中提取所有有意义的组件用于匹配
 private func extractPathComponents(_ path: String) -> [String] {
     let components = path.split(separator: "/").map(String.init)
@@ -154,6 +170,23 @@ private func isWindowParentOfProject(windowTitle: String, projectPath: String) -
     let pathComponents = projectPath.split(separator: "/").map(String.init)
     // 检查窗口名是否是路径中的某个目录组件
     return pathComponents.contains { $0 == windowTitle }
+}
+
+/// 从项目路径中提取 workspace 根路径
+/// 例如：windowTitle=".claude", projectPath="/Users/xxx/.claude/repos/project"
+/// 返回 "/Users/xxx/.claude"
+private func extractWorkspacePath(windowTitle: String, projectPath: String) -> String? {
+    // 在路径中查找匹配的目录名
+    let searchPattern = "/\(windowTitle)/"
+    if let range = projectPath.range(of: searchPattern) {
+        // 返回从开头到匹配目录的路径（包含该目录）
+        return String(projectPath[..<range.upperBound].dropLast())
+    }
+    // 如果路径以该目录结尾
+    if projectPath.hasSuffix("/\(windowTitle)") {
+        return projectPath
+    }
+    return nil
 }
 
 /// 计算窗口与项目的匹配分数（分数越高匹配越精确）
@@ -263,16 +296,16 @@ private func focusWindowViaAppleScript(bundleId: String, projectPath: String?, p
     }
     fputs("[DEBUG] focusWindowViaAppleScript: appName=\(appName)\n", stderr)
 
-    // 构建匹配条件
+    // 构建匹配条件（转义防止注入）
     var matchConditions: [String] = []
     if let name = projectName, !name.isEmpty {
-        matchConditions.append("name of w contains \"\(name)\"")
+        matchConditions.append("name of w contains \"\(escapeAppleScriptString(name))\"")
     }
     if let path = projectPath, !path.isEmpty {
         // 提取路径组件用于匹配
         let components = extractPathComponents(path)
         for comp in components {
-            matchConditions.append("name of w contains \"\(comp)\"")
+            matchConditions.append("name of w contains \"\(escapeAppleScriptString(comp))\"")
         }
     }
 
@@ -280,7 +313,7 @@ private func focusWindowViaAppleScript(bundleId: String, projectPath: String?, p
 
     let script = """
     tell application "System Events"
-        tell process "\(appName)"
+        tell process "\(escapeAppleScriptString(appName))"
             set frontmost to true
             set windowList to every window
             repeat with w in windowList
@@ -315,16 +348,15 @@ private func focusWindowViaAppleScript(bundleId: String, projectPath: String?, p
     return false
 }
 
-/// 使用 CG API 获取窗口列表并通过匹配找到目标窗口名
-private func findBestWindowNameViaCGAPI(pid: pid_t, projectPath: String?, projectName: String?) -> String? {
-    fputs("[DEBUG] findBestWindowNameViaCGAPI: pid=\(pid)\n", stderr)
-
+/// 使用 CG API 扫描窗口列表，返回最佳匹配的窗口名和分数
+/// 统一的窗口扫描逻辑，供其他函数复用
+private func scanWindowsViaCGAPI(pid: pid_t, projectPath: String?, projectName: String?) -> (windowName: String, score: Int)? {
     guard let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
-        fputs("[DEBUG] findBestWindowNameViaCGAPI: failed to get window list\n", stderr)
+        fputs("[DEBUG] scanWindowsViaCGAPI: failed to get window list\n", stderr)
         return nil
     }
 
-    var candidates: [(windowName: String, score: Int)] = []
+    var bestMatch: (windowName: String, score: Int)? = nil
 
     for window in windowList {
         guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32, ownerPID == pid else {
@@ -334,61 +366,23 @@ private func findBestWindowNameViaCGAPI(pid: pid_t, projectPath: String?, projec
         let windowName = window[kCGWindowName as String] as? String ?? ""
         guard !windowName.isEmpty else { continue }
 
-        // 计算匹配分数
         let score = calculateMatchScore(windowTitle: windowName, document: nil, projectPath: projectPath, projectName: projectName)
 
-        fputs("[DEBUG] findBestWindowNameViaCGAPI: window '\(windowName)' score=\(score)\n", stderr)
-
-        if score > 0 {
-            candidates.append((windowName, score))
+        if score > 0 && (bestMatch == nil || score > bestMatch!.score) {
+            bestMatch = (windowName, score)
         }
     }
 
-    // 返回分数最高的窗口名
-    if let best = candidates.max(by: { $0.score < $1.score }) {
-        fputs("[DEBUG] findBestWindowNameViaCGAPI: best match '\(best.windowName)' score=\(best.score)\n", stderr)
-        return best.windowName
+    if let best = bestMatch {
+        fputs("[DEBUG] scanWindowsViaCGAPI: best match '\(best.windowName)' score=\(best.score)\n", stderr)
     }
-
-    return nil
+    return bestMatch
 }
 
-/// 检查是否存在精确匹配项目的窗口（用于决定是否使用 CLI）
-/// 返回最高匹配分数，只有分数 >= 50 才认为是精确匹配
-/// 分数 30（父目录匹配）不足以触发 CLI，因为可能打开错误的目录
-private func windowExistsForProject(pid: pid_t, projectPath: String?, projectName: String?) -> Bool {
-    guard let windowList = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] else {
-        return false
-    }
-
-    var bestScore = 0
-    var bestWindow = ""
-
-    for window in windowList {
-        guard let ownerPID = window[kCGWindowOwnerPID as String] as? Int32, ownerPID == pid else {
-            continue
-        }
-
-        let windowName = window[kCGWindowName as String] as? String ?? ""
-        guard !windowName.isEmpty else { continue }
-
-        let score = calculateMatchScore(windowTitle: windowName, document: nil, projectPath: projectPath, projectName: projectName)
-        if score > bestScore {
-            bestScore = score
-            bestWindow = windowName
-        }
-    }
-
-    // 只有分数 >= 50 才认为是精确匹配（标题精确匹配或包含项目名）
-    // 分数 30（父目录匹配）不足以触发 CLI，避免打开错误目录
-    let threshold = 50
-    if bestScore >= threshold {
-        fputs("[DEBUG] windowExistsForProject: found matching window '\(bestWindow)' with score=\(bestScore) (>= \(threshold))\n", stderr)
-        return true
-    }
-
-    fputs("[DEBUG] windowExistsForProject: best score=\(bestScore) < \(threshold), not precise enough for CLI\n", stderr)
-    return false
+/// 使用 CG API 获取最佳匹配的窗口名
+private func findBestWindowNameViaCGAPI(pid: pid_t, projectPath: String?, projectName: String?) -> String? {
+    fputs("[DEBUG] findBestWindowNameViaCGAPI: pid=\(pid)\n", stderr)
+    return scanWindowsViaCGAPI(pid: pid, projectPath: projectPath, projectName: projectName)?.windowName
 }
 
 /// 通过 AppleScript 使用窗口名 raise 指定窗口
@@ -397,11 +391,11 @@ private func raiseWindowByName(appName: String, windowName: String) -> Bool {
 
     let script = """
     tell application "System Events"
-        tell process "\(appName)"
+        tell process "\(escapeAppleScriptString(appName))"
             set frontmost to true
             set windowList to every window
             repeat with w in windowList
-                if name of w is "\(windowName)" then
+                if name of w is "\(escapeAppleScriptString(windowName))" then
                     perform action "AXRaise" of w
                     return "matched"
                 end if
@@ -425,19 +419,6 @@ private func raiseWindowByName(appName: String, windowName: String) -> Bool {
     return false
 }
 
-/// 获取 Zed 当前焦点窗口标题
-private func getZedFocusedWindowTitle(pid: pid_t) -> String? {
-    let appElement = AXUIElementCreateApplication(pid)
-    var focused: CFTypeRef?
-    let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &focused)
-    guard result == .success, focused != nil else { return nil }
-
-    let fw = focused as AnyObject
-    var title: CFTypeRef?
-    AXUIElementCopyAttributeValue(fw as! AXUIElement, kAXTitleAttribute as CFString, &title)
-    return title as? String
-}
-
 /// 使用应用自身的 CLI 切换窗口（跨 Space 场景）
 /// 配置文件: ~/.claude/notifier-app-commands.json
 /// 格式: { "bundleId": "open command with {path} placeholder" }
@@ -457,8 +438,9 @@ private func focusWindowViaCLI(bundleId: String, projectPath: String) -> Bool {
         return false
     }
 
-    // 替换 {path} 占位符
-    let command = commandTemplate.replacingOccurrences(of: "{path}", with: projectPath)
+    // 替换 {path} 占位符（转义防止命令注入）
+    let escapedPath = escapeShellArg(projectPath)
+    let command = commandTemplate.replacingOccurrences(of: "{path}", with: escapedPath)
     fputs("[DEBUG] focusWindowViaCLI: executing '\(command)'\n", stderr)
 
     // 执行命令
@@ -501,7 +483,33 @@ private func focusHostApp(hostBundleId: String, projectPath: String?, projectNam
     }
     fputs("[DEBUG] focusHostApp: accessibility permission granted\n", stderr)
 
-    // 方法 1: 尝试 AX API（对同一 Space 的窗口有效）
+    // 方法 1: 使用应用 CLI 命令（跨 Space 场景最可靠）
+    // 配置文件: ~/.claude/notifier-app-commands.json
+    // 注意：CLI 优先于 AX API，因为 AX API 在其他 Space 可能返回假阳性
+    if let path = projectPath, !path.isEmpty {
+        // 获取窗口匹配信息，决定使用什么路径
+        var cliPath = path
+
+        if let matchInfo = scanWindowsViaCGAPI(pid: app.processIdentifier, projectPath: projectPath, projectName: projectName) {
+            // 如果是父目录匹配（score 30-49），使用 workspace 根路径
+            if matchInfo.score >= 30 && matchInfo.score < 50 {
+                if let workspacePath = extractWorkspacePath(windowTitle: matchInfo.windowName, projectPath: path) {
+                    fputs("[DEBUG] focusHostApp: parent directory match, using workspace path: \(workspacePath)\n", stderr)
+                    cliPath = workspacePath
+                }
+            }
+            fputs("[DEBUG] focusHostApp: window match score=\(matchInfo.score), trying CLI with path: \(cliPath)\n", stderr)
+        } else {
+            fputs("[DEBUG] focusHostApp: no matching window in current Space, trying CLI with original path...\n", stderr)
+        }
+
+        if focusWindowViaCLI(bundleId: hostBundleId, projectPath: cliPath) {
+            fputs("[DEBUG] focusHostApp: CLI command succeeded\n", stderr)
+            return
+        }
+    }
+
+    // 方法 2: 尝试 AX API（CLI 不可用时的回退）
     for attempt in 1...2 {
         let result = focusWindow(pid: app.processIdentifier, projectPath: projectPath, projectName: projectName)
         if result {
@@ -510,23 +518,6 @@ private func focusHostApp(hostBundleId: String, projectPath: String?, projectNam
         }
         if attempt < 2 {
             Thread.sleep(forTimeInterval: 0.15)
-        }
-    }
-
-    // 方法 2: 使用应用 CLI 命令（跨 Space 场景，需配置）
-    // 配置文件: ~/.claude/notifier-app-commands.json
-    // 重要：只有当窗口确实存在（但在其他 Space）时才使用 CLI
-    // 避免打开不存在的项目窗口
-    if let path = projectPath, !path.isEmpty {
-        // 先检查是否存在匹配的窗口
-        if windowExistsForProject(pid: app.processIdentifier, projectPath: projectPath, projectName: projectName) {
-            fputs("[DEBUG] focusHostApp: window exists, trying CLI command...\n", stderr)
-            if focusWindowViaCLI(bundleId: hostBundleId, projectPath: path) {
-                fputs("[DEBUG] focusHostApp: CLI command succeeded\n", stderr)
-                return
-            }
-        } else {
-            fputs("[DEBUG] focusHostApp: no matching window exists, skipping CLI to avoid opening new window\n", stderr)
         }
     }
 
@@ -599,17 +590,43 @@ func installCustomSound(from path: String) -> String? {
     return sourceURL.deletingPathExtension().lastPathComponent
 }
 
-func sendNotification(title: String, message: String, sound: String?, soundFile: String?, userInfo: [AnyHashable: Any]) {
+func formatDuration(_ seconds: Int) -> String {
+    if seconds < 60 { return "\(seconds)s" }
+    let m = seconds / 60
+    let s = seconds % 60
+    return s > 0 ? "\(m)m \(s)s" : "\(m)m"
+}
+
+func sendNotification(title: String, message: String, sound: String?, soundFile: String?, userInfo: [AnyHashable: Any], status: String? = nil, subtitle: String? = nil, duration: Int? = nil) {
     let center = UNUserNotificationCenter.current()
 
     let semaphore = DispatchSemaphore(value: 0)
 
-    // 处理自定义音效文件
-    var soundName = sound ?? "Glass"
+    // 处理音效：优先自定义文件，其次指定声音，nil 表示静音
+    var effectiveSoundName: String? = sound
     if let file = soundFile {
         if let installed = installCustomSound(from: file) {
-            soundName = installed
+            effectiveSoundName = installed
         }
+    }
+
+    // 失败状态使用更明显的警告音
+    if status == "failure" && effectiveSoundName == "Glass" {
+        effectiveSoundName = "Basso"
+    }
+
+    // 状态前缀
+    let statusPrefix: String
+    switch status {
+    case "failure": statusPrefix = "❌ "
+    case "warning": statusPrefix = "⚠️ "
+    default: statusPrefix = ""
+    }
+
+    // 格式化消息（追加耗时）
+    var formattedMessage = message
+    if let duration {
+        formattedMessage += " (\(formatDuration(duration)))"
     }
 
     center.requestAuthorization(options: [.alert, .sound]) { granted, error in
@@ -626,10 +643,16 @@ func sendNotification(title: String, message: String, sound: String?, soundFile:
         }
 
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = message
+        content.title = statusPrefix + title
+        content.body = formattedMessage
+        if let subtitle {
+            content.subtitle = subtitle
+        }
         content.userInfo = userInfo
-        content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: soundName))
+        // 仅当 effectiveSoundName 非 nil 时才设置声音（支持 --no-sound 静音）
+        if let soundName = effectiveSoundName {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(rawValue: soundName))
+        }
 
         let request = UNNotificationRequest(
             identifier: UUID().uuidString,
@@ -666,6 +689,28 @@ func logToFile(_ message: String) {
     }
 }
 
+// JSONL 格式历史记录
+let historyFile = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/notifier-history.jsonl")
+func logNotificationToHistory(_ entry: [String: Any]) {
+    guard let jsonData = try? JSONSerialization.data(withJSONObject: entry),
+          var jsonString = String(data: jsonData, encoding: .utf8) else {
+        return
+    }
+    jsonString += "\n"
+
+    if let data = jsonString.data(using: .utf8) {
+        if FileManager.default.fileExists(atPath: historyFile.path) {
+            if let handle = try? FileHandle(forWritingTo: historyFile) {
+                handle.seekToEndOfFile()
+                handle.write(data)
+                handle.closeFile()
+            }
+        } else {
+            try? data.write(to: historyFile)
+        }
+    }
+}
+
 logToFile("=== ClaudeNotifier starting ===")
 logToFile("PID: \(ProcessInfo.processInfo.processIdentifier)")
 logToFile("Args: \(CommandLine.arguments)")
@@ -687,20 +732,35 @@ let recognizedOptions: Set<String> = [
     "--project-name",
     "--host-bundle-id",
     "--tty",
+    "--status",
+    "--subtitle",
+    "--duration",
 ]
 
 let rawArgs = Array(CommandLine.arguments.dropFirst())
 let isLaunchServicesLaunch = rawArgs.contains(where: { $0.hasPrefix("-psn_") })
 let hasRecognizedArgs = rawArgs.contains(where: { recognizedOptions.contains($0) })
 
-// 关键修复：如果没有任何有效参数，不发送通知
-// 这防止了点击通知后系统重新激活应用时发送默认通知
+// 关键修复：LaunchServices 启动（通知点击）需要运行事件循环来接收回调
 if !hasRecognizedArgs {
-    logToFile("No recognized args, exiting without notification")
-    fputs("[DEBUG] No recognized args, exiting without notification\n", stderr)
     if isLaunchServicesLaunch {
-        // LaunchServices 启动，等待一会儿再退出
-        RunLoop.current.run(until: Date(timeIntervalSinceNow: 2))
+        // 通知点击触发的启动：运行 NSApplication 事件循环
+        logToFile("LaunchServices launch (notification click), starting event loop")
+        fputs("[DEBUG] LaunchServices launch (notification click), starting event loop\n", stderr)
+
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+
+        // 10秒超时防止挂起
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+            fputs("[DEBUG] LaunchServices timeout, exiting...\n", stderr)
+            exit(0)
+        }
+
+        app.run()
+    } else {
+        logToFile("No recognized args, exiting without notification")
+        fputs("[DEBUG] No recognized args, exiting without notification\n", stderr)
     }
     exit(0)
 }
@@ -714,6 +774,9 @@ var projectPath: String? = nil
 var projectName: String? = nil
 var hostBundleId: String? = nil
 var tty: String? = nil
+var status: String? = nil
+var subtitle: String? = nil
+var duration: Int? = nil
 
 var args = ArraySlice(rawArgs)
 while let arg = args.popFirst() {
@@ -740,6 +803,12 @@ while let arg = args.popFirst() {
         if let val = args.popFirst() { hostBundleId = val }
     case "--tty":
         if let val = args.popFirst() { tty = val }
+    case "--status":
+        if let val = args.popFirst() { status = val.lowercased() }
+    case "--subtitle":
+        if let val = args.popFirst() { subtitle = val }
+    case "--duration":
+        if let val = args.popFirst() { duration = Int(val) }
     case "-h", "--help":
         print("""
         ClaudeNotifier - Send macOS notifications with Claude icon
@@ -755,6 +824,9 @@ while let arg = args.popFirst() {
           --project-name <name>    Project folder name
           --host-bundle-id <id>    Host app bundle ID (e.g., dev.zed.Zed)
           --tty <tty>              Terminal tty path (e.g., /dev/ttys003)
+          --status <status>        Task status: success, failure, warning
+          --subtitle <text>        Notification subtitle (short summary)
+          --duration <seconds>     Task duration in seconds (auto-formatted)
           --no-sound               Disable notification sound
           -h, --help               Show this help
 
@@ -781,8 +853,26 @@ if let projectPath, !projectPath.isEmpty { userInfo[NotificationUserInfoKey.proj
 if let projectName, !projectName.isEmpty { userInfo[NotificationUserInfoKey.projectName] = projectName }
 if let hostBundleId, !hostBundleId.isEmpty { userInfo[NotificationUserInfoKey.hostBundleId] = hostBundleId }
 if let tty, !tty.isEmpty { userInfo[NotificationUserInfoKey.tty] = tty }
+if let status, !status.isEmpty { userInfo[NotificationUserInfoKey.status] = status }
+if let subtitle, !subtitle.isEmpty { userInfo[NotificationUserInfoKey.subtitle] = subtitle }
+if let duration { userInfo[NotificationUserInfoKey.duration] = duration }
 
-sendNotification(title: title, message: message, sound: sound, soundFile: soundFile, userInfo: userInfo)
+// 记录到 JSONL 历史
+var historyEntry: [String: Any] = [
+    "timestamp": ISO8601DateFormatter().string(from: Date()),
+    "pid": ProcessInfo.processInfo.processIdentifier,
+    "title": title,
+    "message": message,
+]
+if let projectPath { historyEntry["projectPath"] = projectPath }
+if let projectName { historyEntry["projectName"] = projectName }
+if let hostBundleId { historyEntry["hostBundleId"] = hostBundleId }
+if let status { historyEntry["status"] = status }
+if let subtitle { historyEntry["subtitle"] = subtitle }
+if let duration { historyEntry["duration"] = duration }
+logNotificationToHistory(historyEntry)
+
+sendNotification(title: title, message: message, sound: sound, soundFile: soundFile, userInfo: userInfo, status: status, subtitle: subtitle, duration: duration)
 
 // 如果有焦点跳转参数，使用 NSApplication 事件循环等待用户点击
 // 只有 NSApplication.run() 才能正确接收通知点击回调
