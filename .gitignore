@@ -23,3 +23,26 @@ claude-notifier-windows/*.zip
 # Temporary files
 *.log
 *.tmp
+
+# Configuration files with sensitive data
+config.sh
+!config.sample.sh
+
+# Windows Zone.Identifier files
+*.Zone.Identifier
+
+# Node modules (if any)
+node_modules/
+package-lock.json
+yarn.lock
+
+# macOS specific
+.AppleDouble
+.LSOverride
+._*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python

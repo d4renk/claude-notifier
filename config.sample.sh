@@ -259,4 +259,15 @@ export WEBHOOK_METHOD=""
 ## 支持 text/plain、application/json、multipart/form-data、application/x-www-form-urlencoded
 export WEBHOOK_CONTENT_TYPE=""
 
+## Claude Code MCP 通知路由规则（可选）
+## 逗号分隔的渠道列表: dingtalk, telegram, bark, ntfy, feishu, all
+## 优先级: 事件级别 > 级别默认 > 全局默认
+export CLAUDE_NOTIFY_TITLE="Claude Code"
+export CLAUDE_NOTIFY_ROUTE_SUCCESS="ntfy,bark"
+export CLAUDE_NOTIFY_ROUTE_ERROR="telegram,dingtalk,feishu,ntfy"
+export CLAUDE_NOTIFY_ROUTE_ATTENTION="telegram,bark,dingtalk,feishu"
+export CLAUDE_NOTIFY_ROUTE_WARN="ntfy,telegram"
+export CLAUDE_NOTIFY_ROUTE_INFO="ntfy"
+export CLAUDE_NOTIFY_ROUTE_DEFAULT=""
+
 ## 其他需要的变量，脚本中需要的变量使用 export 变量名= 声明即可
