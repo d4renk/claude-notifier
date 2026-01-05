@@ -186,7 +186,7 @@ export CLAUDE_NOTIFY_ROUTE_DEFAULT=""
 ## =============================================================================
 
 ## 一言（随机句子）
-export HITOKOTO="true"          # 是否在通知末尾添加一言，true/false
+export HITOKOTO="false"         # 是否在通知末尾添加一言，true/false（默认关闭）
 
 ## 跳过推送的标题（多个用换行分隔）
 export SKIP_PUSH_TITLE=""       # 包含这些标题的通知不推送，如 "调试\n测试\ndraft"
