@@ -1,5 +1,9 @@
 # MCP Notify Hook 快速入门
 
+> **适用平台**：Linux / macOS / Windows（WSL）
+>
+> 本方案使用多渠道推送，无需桌面环境，通过手机或第三方平台接收通知。
+
 ## 3 分钟快速配置
 
 ### 步骤 1：克隆仓库
@@ -74,8 +78,9 @@ cd claude-notifier
 ```
 
 **重要**：将 `/绝对路径/` 替换为实际路径：
-- Linux/macOS: `/home/username/claude-notifier/`
-- Windows WSL: `/mnt/c/Users/username/claude-notifier/`
+- **Linux**: `/home/username/claude-notifier/scripts/mcp-notify-hook.sh`
+- **macOS**: `/Users/username/claude-notifier/scripts/mcp-notify-hook.sh`
+- **Windows WSL**: `/mnt/c/Users/username/claude-notifier/scripts/mcp-notify-hook.sh`
 
 ### 步骤 4：测试
 

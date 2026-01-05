@@ -5,7 +5,7 @@
 <p align="center">
   <a href="claude-notifier-macos/"><img src="https://img.shields.io/badge/macOS-12.0+-blue?style=flat-square&logo=apple" alt="macOS 12.0+"/></a>
   <a href="claude-notifier-windows/"><img src="https://img.shields.io/badge/Windows-10+-0078D6?style=flat-square&logo=windows" alt="Windows 10+"/></a>
-  <a href="#linux-多渠道推送"><img src="https://img.shields.io/badge/Linux-推送-orange?style=flat-square&logo=linux" alt="Linux"/></a>
+  <a href="docs/QUICK_START.md"><img src="https://img.shields.io/badge/Linux-多渠道推送-orange?style=flat-square&logo=linux" alt="Linux"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License"/></a>
 </p>
 
@@ -43,6 +43,8 @@ cargo build --release
 详见：[macOS 文档](claude-notifier-macos/README.md) | [Windows 文档](claude-notifier-windows/README.md)
 
 ### 方式二：多渠道推送（所有平台通用）
+
+> **适用于**：Linux / macOS / Windows（WSL） - 无需桌面环境
 
 支持 ntfy、Bark、Telegram、钉钉、飞书等 20+ 渠道，智能路由到不同平台。
 
