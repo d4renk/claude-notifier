@@ -5,6 +5,7 @@
 <p align="center">
   <a href="claude-notifier-macos/"><img src="https://img.shields.io/badge/macOS-12.0+-blue?style=flat-square&logo=apple" alt="macOS 12.0+"/></a>
   <a href="claude-notifier-windows/"><img src="https://img.shields.io/badge/Windows-10+-0078D6?style=flat-square&logo=windows" alt="Windows 10+"/></a>
+  <a href="#linux-多渠道推送"><img src="https://img.shields.io/badge/Linux-推送-orange?style=flat-square&logo=linux" alt="Linux"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License"/></a>
 </p>
 
@@ -41,7 +42,29 @@ cargo build --release
 
 详见：[macOS 文档](claude-notifier-macos/README.md) | [Windows 文档](claude-notifier-windows/README.md)
 
-### 方式二：MCP 多渠道推送（推荐）
+### 方式二：Linux 多渠道推送
+
+Linux 下推荐使用多渠道推送（无桌面通知依赖）：
+
+```bash
+# 1. 克隆仓库
+git clone https://github.com/zengwenliang416/claude-notifier.git
+cd claude-notifier
+
+# 2. 安装依赖
+npm install undici  # 或 yarn add undici
+
+# 3. 配置
+cp config.sample.sh config.sh
+vim config.sh  # 配置至少一个渠道（推荐 ntfy）
+
+# 4. 测试
+./test-mcp-notify.sh
+```
+
+详见：[快速入门](docs/QUICK_START.md)
+
+### 方式三：MCP 多渠道推送（所有平台）
 
 支持 ntfy、Bark、Telegram、钉钉、飞书等 20+ 渠道，智能路由到不同平台。
 
@@ -116,7 +139,9 @@ claude-notifier/
 │   ├── mcp-notify-hook.sh   # Hook 入口
 │   └── mcp-notify.js        # 路由逻辑
 ├── notify.js                 # 多渠道推送库
+├── install-linux.sh          # Linux 一键安装脚本
 ├── config.sample.sh          # 配置模板
+├── LINUX.md                  # Linux 版文档
 └── docs/                     # 文档
 ```
 

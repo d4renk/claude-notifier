@@ -2,14 +2,29 @@
 
 ## 5 分钟快速配置
 
-### 步骤 1：克隆仓库
+### Linux 用户（一键安装）
+
+```bash
+# 克隆仓库
+git clone https://github.com/zengwenliang416/claude-notifier.git
+cd claude-notifier
+
+# 运行安装脚本
+./install-linux.sh
+
+# 按照提示配置渠道和 Hook 即可
+```
+
+### 通用方式（所有平台）
+
+#### 步骤 1：克隆仓库
 
 ```bash
 git clone https://github.com/zengwenliang416/claude-notifier.git
 cd claude-notifier
 ```
 
-### 步骤 2：配置通知渠道
+#### 步骤 2：配置通知渠道
 
 **推荐新手选择 ntfy（最简单，无需注册）：**
 
@@ -34,7 +49,12 @@ cp config.sample.sh config.sh
 export BARK_PUSH="ABC123DEF"  # 只填设备码部分
 ```
 
-### 步骤 3：配置 Claude Code Hook
+**Linux 用户**：需先安装 Node.js 依赖
+```bash
+npm install undici  # 或 yarn add undici
+```
+
+#### 步骤 3：配置 Claude Code Hook
 
 编辑 `~/.claude/settings.json`：
 
@@ -59,8 +79,9 @@ export BARK_PUSH="ABC123DEF"  # 只填设备码部分
 **重要**：
 - 将 `/绝对路径/` 替换为你的实际路径（如 `/home/username/claude-notifier/`）
 - Windows 用户使用 WSL 路径（如 `/mnt/c/Users/...`）
+- Linux 用户使用实际路径（如 `/home/username/claude-notifier/`）
 
-### 步骤 4：测试
+#### 步骤 4：测试
 
 ```bash
 # 运行测试脚本
