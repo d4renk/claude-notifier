@@ -181,20 +181,34 @@ export BARK_PUSH="your-key"
 }
 ```
 
-## 支持的渠道
+## 支持的渠道（完整列表）
 
 | 渠道 | 配置难度 | 必需环境变量 | 推荐场景 |
 |------|---------|-------------|----------|
 | **ntfy** | ⭐ 最简单 | `NTFY_TOPIC` | 跨平台、快速测试 |
-| **Bark** | ⭐ 简单 | `BARK_PUSH` | iOS 用户 |
-| **Telegram** | ⭐⭐ | `TG_BOT_TOKEN`, `TG_USER_ID` | 全平台 |
-| 钉钉 | ⭐⭐ | `DD_BOT_TOKEN`, `DD_BOT_SECRET` | 企业 |
-| 飞书 | ⭐⭐ | `FSKEY` | 企业 |
-| 企业微信 | ⭐⭐ | `QYWX_KEY` | 企业 |
-| Server 酱 | ⭐ | `PUSH_KEY` | 微信推送 |
-| PushPlus | ⭐ | `PUSH_PLUS_TOKEN` | 微信推送 |
+| **Bark** | ⭐ 简单 | `BARK_PUSH` | iOS 推荐 |
+| **Telegram** | ⭐⭐ | `TG_BOT_TOKEN`, `TG_USER_ID` | 全平台、功能强大 |
+| **钉钉** | ⭐⭐ | `DD_BOT_TOKEN`, `DD_BOT_SECRET` | 企业 IM |
+| **飞书** | ⭐⭐ | `FSKEY` | 企业 IM |
+| **企业微信机器人** | ⭐⭐ | `QYWX_KEY` | 企业 IM |
+| **企业微信应用** | ⭐⭐⭐ | `QYWX_AM` | 企业应用 |
+| **Server酱** | ⭐ | `PUSH_KEY` | 微信推送 |
+| **PushPlus** | ⭐⭐ | `PUSH_PLUS_TOKEN` | 微信推送 |
+| **iGot** | ⭐ | `IGOT_PUSH_KEY` | 聚合推送 |
+| **pushMe** | ⭐ | `PUSHME_KEY` | 自建服务 |
+| **pushDeer** | ⭐ | `DEER_KEY` | iOS/Android |
+| **gotify** | ⭐⭐ | `GOTIFY_URL`, `GOTIFY_TOKEN` | 自托管 |
+| **Chronocat** | ⭐⭐⭐ | `CHRONOCAT_URL`, `CHRONOCAT_TOKEN`, `CHRONOCAT_QQ` | QQ 机器人 |
+| **go-cqhttp** | ⭐⭐⭐ | `GOBOT_URL`, `GOBOT_TOKEN`, `GOBOT_QQ` | QQ 机器人 |
+| **微加机器人** | ⭐⭐ | `WE_PLUS_BOT_TOKEN` | 微信机器人 |
+| **智能微秘书** | ⭐⭐ | `AIBOTK_KEY`, `AIBOTK_TYPE`, `AIBOTK_NAME` | 微信机器人 |
+| **Qmsg酱** | ⭐ | `QMSG_KEY`, `QMSG_TYPE` | QQ 推送 |
+| **Synology Chat** | ⭐⭐ | `CHAT_URL`, `CHAT_TOKEN` | 群晖 Chat |
+| **wxPusher** | ⭐⭐ | `WXPUSHER_APP_TOKEN` | 微信推送 |
+| **SMTP** | ⭐⭐ | `SMTP_SERVICE`, `SMTP_EMAIL`, `SMTP_PASSWORD` | 邮件通知 |
+| **自定义 Webhook** | ⭐⭐⭐ | `WEBHOOK_URL`, `WEBHOOK_METHOD` | 自定义接口 |
 
-**查看全部 20+ 渠道**：查看 [notify.js](../notify.js) 源码或 [config.sample.sh](../config.sample.sh) 参考文档
+**配置示例**：参考 [config.sample.sh](../config.sample.sh)
 
 ## 故障排查
 

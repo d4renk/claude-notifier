@@ -1,273 +1,192 @@
-## 在运行 ql repo 命令时，是否自动删除失效的脚本与定时任务
-AutoDelCron="true"
+#!/bin/bash
+# Claude Notifier 环境变量配置参考
+#
+# 重要说明：
+# - 本文件仅作为环境变量参考，列出所有可配置项
+# - 实际配置请使用 ~/.claude/settings.json 的 env 字段
+# - 或配置在系统环境变量中（~/.bashrc 或 ~/.zshrc）
+#
+# 支持的渠道由 notify.js 决定，共 20+ 个渠道
 
-## 在运行 ql repo 命令时，是否自动增加新的本地定时任务
-AutoAddCron="true"
+## =============================================================================
+## 通知渠道配置（选择需要的渠道配置即可）
+## =============================================================================
 
-## 拉取脚本时默认的定时规则，当匹配不到定时规则时使用，例如: 0 9 * * *
-DefaultCronRule=""
+## 1. ntfy（推荐：最简单，无需注册）
+## 官方网站：https://ntfy.sh
+export NTFY_URL=""              # ntfy 服务器地址，默认 https://ntfy.sh
+export NTFY_TOPIC=""            # ntfy 主题名（必填）
+export NTFY_PRIORITY="3"        # 推送优先级，默认 3
+export NTFY_TOKEN=""            # 推送 token（可选）
+export NTFY_USERNAME=""         # 用户名（可选）
+export NTFY_PASSWORD=""         # 密码（可选）
+export NTFY_ACTIONS=""          # 推送动作（可选）
 
-## ql repo命令拉取脚本时需要拉取的文件后缀，直接写文件后缀名即可
-RepoFileExtensions="js mjs py pyc"
-
-## 代理地址，支持HTTP/SOCK5，例如 http://127.0.0.1:7890
-ProxyUrl=""
-
-## 资源告警阙值，默认CPU 80%、内存80%、磁盘90%
-CpuWarn=80
-MemoryWarn=80
-DiskWarn=90
-
-## 设置定时任务执行的超时时间，例如1h，后缀"s"代表秒(默认值), "m"代表分, "h"代表小时, "d"代表天
-CommandTimeoutTime=""
-
-## 在运行 task 命令时，随机延迟启动任务的最大延迟时间，如 RandomDelay="300" ，表示任务将在 1-300 秒内随机延迟一个秒数，然后再运行，取消延迟赋值为空
-RandomDelay=""
-
-## 需要随机延迟运行任务的文件后缀，直接写后缀名即可，多个后缀用空格分开，例如: js py ts
-## 默认仅给javascript任务加随机延迟，其它任务按定时规则准点运行。全部任务随机延迟赋值为空
-RandomDelayFileExtensions=""
-
-## 每小时的第几分钟准点运行任务，当在这些时间运行任务时将忽略 RandomDelay 配置，不会被随机延迟
-## 默认是第0分钟和第30分钟，例如21:00或21:30分的任务将会准点运行。不需要准点运行赋值为空
-RandomDelayIgnoredMinutes=""
-
-## 如果你自己会写shell脚本，并且希望在每次容器启动时，额外运行你的 shell 脚本，请赋值为 "true"
-EnableExtraShell=""
-
-## 是否自动启动bot，默认不启动，设置为true时自动启动，目前需要自行克隆bot仓库所需代码，存到ql/repo目录下，文件夹命名为dockerbot
-AutoStartBot=""
-
-## 是否使用第三方bot，默认不使用，使用时填入仓库地址，存到ql/repo目录下，文件夹命名为diybot
-BotRepoUrl=""
-
-## 通知环境变量
-## 1. Server酱
-## https://sct.ftqq.com/r/13363
-## 下方填写 SCHKEY 值或 SendKey 值
-export PUSH_KEY=""
-
-## 2. BARK
-## 下方填写app提供的设备码，例如：https://api.day.app/123 那么此处的设备码就是123
-export BARK_PUSH=""
-## 下方填写推送图标设置，自定义推送图标(需iOS15或以上)
-export BARK_ICON="https://qn.whyour.cn/logo.png"
-## 下方填写推送声音设置，例如choo，具体值请在bark-推送铃声-查看所有铃声
-export BARK_SOUND=""
-## 下方填写推送消息分组，默认为"QingLong"
-export BARK_GROUP="QingLong"
-## bark 推送时效性
-export BARK_LEVEL="active"
-## bark 推送是否存档
-export BARK_ARCHIVE=""
-## bark 推送跳转 URL
-export BARK_URL=""
+## 2. Bark（推荐：iOS 用户）
+## App Store 下载 Bark，获取设备码
+export BARK_PUSH=""             # 设备码或完整 URL，如 https://api.day.app/ABC123DEF
+export BARK_ICON=""             # 推送图标 URL（可选）
+export BARK_SOUND=""            # 推送声音，如 choo（可选）
+export BARK_GROUP=""            # 推送分组，默认 QingLong（可选）
+export BARK_LEVEL=""            # 推送时效性：active/timeSensitive/passive（可选）
+export BARK_ARCHIVE=""          # 是否存档（可选）
+export BARK_URL=""              # 推送跳转 URL（可选）
 
 ## 3. Telegram
-## 下方填写自己申请@BotFather的Token，如10xxx4:AAFcqxxxxgER5uw
-export TG_BOT_TOKEN=""
-## 下方填写 @getuseridbot 中获取到的纯数字ID
-export TG_USER_ID=""
-## Telegram 代理IP（选填）
-## 下方填写代理IP地址，代理类型为 http，比如您代理是 http://127.0.0.1:1080，则填写 "127.0.0.1"
-## 如需使用，请自行解除下一行的注释
-export TG_PROXY_HOST=""
-## Telegram 代理端口（选填）
-## 下方填写代理端口号，代理类型为 http，比如您代理是 http://127.0.0.1:1080，则填写 "1080"
-## 如需使用，请自行解除下一行的注释
-export TG_PROXY_PORT=""
-## Telegram 代理的认证参数（选填）
-export TG_PROXY_AUTH=""
-## Telegram api自建反向代理地址（选填）
-## 教程：https://www.hostloc.com/thread-805441-1-1.html
-## 如反向代理地址 http://aaa.bbb.ccc 则填写 aaa.bbb.ccc
-## 如需使用，请赋值代理地址链接，并自行解除下一行的注释
-export TG_API_HOST=""
+## 官方文档：https://core.telegram.org/bots
+## 步骤：1) @BotFather 创建 bot 获取 token  2) @getuseridbot 获取用户 ID
+export TG_BOT_TOKEN=""          # Telegram bot token（必填）
+export TG_USER_ID=""            # Telegram 用户 ID（必填）
+export TG_API_HOST=""           # API 地址，默认 https://api.telegram.org（可选）
+export TG_PROXY_HOST=""         # 代理地址（可选）
+export TG_PROXY_PORT=""         # 代理端口（可选）
+export TG_PROXY_AUTH=""         # 代理认证参数（可选）
 
-## 4. 钉钉
+## 4. 钉钉机器人
 ## 官方文档：https://developers.dingtalk.com/document/app/custom-robot-access
-## 下方填写token后面的内容，只需 https://oapi.dingtalk.com/robot/send?access_token=XXX 等于=符号后面的XXX即可
-export DD_BOT_TOKEN=""
-export DD_BOT_SECRET=""
+export DD_BOT_TOKEN=""          # 钉钉机器人 webhook 的 access_token（必填）
+export DD_BOT_SECRET=""         # 钉钉机器人加签密钥（可选，推荐配置）
 
-## 企业微信反向代理地址
-## (环境变量名 QYWX_ORIGIN)
-export QYWX_ORIGIN=""
-
-## 5. 企业微信机器人
-## 官方说明文档：https://work.weixin.qq.com/api/doc/90000/90136/91770
-## 下方填写密钥，企业微信推送 webhook 后面的 key
-export QYWX_KEY=""
-
-## 6. 企业微信应用
-## 参考文档：http://note.youdao.com/s/HMiudGkb
-## 下方填写素材库图片id（corpid,corpsecret,touser,agentid），素材库图片填0为图文消息, 填1为纯文本消息
-export QYWX_AM=""
-
-## 7. iGot聚合
-## 参考文档：https://wahao.github.io/Bark-MP-helper
-## 下方填写iGot的推送key，支持多方式推送，确保消息可达
-export IGOT_PUSH_KEY=""
-
-## 8. Push Plus
-## 官方网站：http://www.pushplus.plus
-## 下方填写您的Token，微信扫码登录后一对一推送或一对多推送下面的token，只填 PUSH_PLUS_TOKEN 默认为一对一推送
-export PUSH_PLUS_TOKEN=""
-## 一对一多推送（选填）
-## 下方填写您的一对多推送的 "群组编码" ，（一对多推送下面->您的群组(如无则新建)->群组编码）
-## 1. 需订阅者扫描二维码 2、如果您是创建群组所属人，也需点击“查看二维码”扫描绑定，否则不能接受群组消息推送
-export PUSH_PLUS_USER=""
-## 发送模板，支持html,txt,json,markdown,cloudMonitor,jenkins,route,pay
-export PUSH_PLUS_TEMPLATE="html"
-## 发送渠道，支持wechat,webhook,cp,mail,sms
-export PUSH_PLUS_CHANNEL="wechat"
-## webhook编码，可在pushplus公众号上扩展配置出更多渠道
-export PUSH_PLUS_WEBHOOK=""
-## 发送结果回调地址，会把推送最终结果通知到这个地址上
-export PUSH_PLUS_CALLBACKURL=""
-## 好友令牌，微信公众号渠道填写好友令牌，企业微信渠道填写企业微信用户id
-export PUSH_PLUS_TO=""
-
-## 9. 微加机器人
-## 官方网站：http://www.weplusbot.com
-## 下方填写您的Token；微信扫描登录后在"我的"->"设置"->"令牌"中获取
-export WE_PLUS_BOT_TOKEN=""
-## 消息接收人；
-## 个人版填写接收消息的群编码，不填发送给自己的微信号
-## 专业版不填默认发给机器人自己，发送给好友填写wxid，发送给微信群填写群编码
-export WE_PLUS_BOT_RECEIVER=""
-## 调用版本；分为专业版和个人版，专业版填写pro，个人版填写personal
-export WE_PLUS_BOT_VERSION="pro"
-
-## 10. go-cqhttp
-## gobot_url 推送到个人QQ: http://127.0.0.1/send_private_msg  群：http://127.0.0.1/send_group_msg
-## gobot_token 填写在go-cqhttp文件设置的访问密钥
-## gobot_qq 如果GOBOT_URL设置 /send_private_msg 则需要填入 user_id=个人QQ 相反如果是 /send_group_msg 则需要填入 group_id=QQ群
-## go-cqhttp相关API https://docs.go-cqhttp.org/api
-export GOBOT_URL=""
-export GOBOT_TOKEN=""
-export GOBOT_QQ=""
-
-## 11. gotify
-## gotify_url 填写gotify地址,如https://push.example.de:8080
-## gotify_token 填写gotify的消息应用token
-## gotify_priority 填写推送消息优先级,默认为0
-export GOTIFY_URL=""
-export GOTIFY_TOKEN=""
-export GOTIFY_PRIORITY=0
-
-## 12. PushDeer
-## deer_key 填写PushDeer的key
-export DEER_KEY=""
-
-## 13. Chat
-## chat_url 填写synology chat地址，http://IP:PORT/webapi/***token=
-## chat_token 填写后面的token
-export CHAT_URL=""
-export CHAT_TOKEN=""
-
-## 14. aibotk
-## 官方说明文档：http://wechat.aibotk.com/oapi/oapi?from=ql
-## aibotk_key (必填)填写智能微秘书个人中心的apikey
-export AIBOTK_KEY=""
-## aibotk_type (必填)填写发送的目标 room 或 contact, 填其他的不生效
-export AIBOTK_TYPE=""
-## aibotk_name (必填)填写群名或用户昵称，和上面的type类型要对应
-export AIBOTK_NAME=""
-
-## 15. CHRONOCAT
-## CHRONOCAT_URL 推送 http://127.0.0.1:16530
-## CHRONOCAT_TOKEN 填写在CHRONOCAT文件生成的访问密钥
-## CHRONOCAT_QQ 个人:user_id=个人QQ 群则填入group_id=QQ群 多个用英文;隔开同时支持个人和群 如：user_id=xxx;group_id=xxxx;group_id=xxxxx
-## CHRONOCAT相关API https://chronocat.vercel.app/install/docker/official/
-export CHRONOCAT_URL=""
-export CHRONOCAT_QQ=""
-export CHRONOCAT_TOKEN=""
-
-## 16. SMTP
-## JavaScript 参数
-## 邮箱服务名称，比如126、163、Gmail、QQ等，支持列表 https://github.com/nodemailer/nodemailer/blob/master/lib/well-known/services.json
-export SMTP_SERVICE=""
-
-## Python 参数
-## SMTP 发送邮件服务器，形如 smtp.exmail.qq.com:465
-export SMTP_SERVER=""
-## SMTP 发送邮件服务器是否使用 SSL，填写 true 或 false
-export SMTP_SSL=""
-
-## smtp_email 填写 SMTP 收发件邮箱，通知将会由自己发给自己
-export SMTP_EMAIL=""
-## smtp_password 填写 SMTP 登录密码，也可能为特殊口令，视具体邮件服务商说明而定
-export SMTP_PASSWORD=""
-## smtp_name 填写 SMTP 收发件人姓名，可随意填写
-export SMTP_NAME=""
-
-## 17. PushMe
-## 官方说明文档：https://push.i-i.me/
-## PUSHME_KEY (必填)填写PushMe APP上获取的push_key
-## PUSHME_URL (选填)填写自建的PushMeServer消息服务接口地址，例如：http://127.0.0.1:3010，不填则使用官方接口服务
-export PUSHME_KEY=""
-export PUSHME_URL=""
-
-## 18. 飞书机器人
+## 5. 飞书机器人
 ## 官方文档：https://www.feishu.cn/hc/zh-CN/articles/360024984973
-## FSKEY 飞书机器人的 FSKEY
-export FSKEY=""
+export FSKEY=""                 # 飞书机器人 webhook key（必填）
+export FSSECRET=""              # 飞书机器人签名校验密钥（可选）
 
-## 19. Qmsg酱
+## 6. 企业微信机器人
+## 官方文档：https://work.weixin.qq.com/api/doc/90000/90136/91770
+export QYWX_KEY=""              # 企业微信机器人 webhook key（必填）
+export QYWX_ORIGIN=""           # 企业微信 API 地址，默认 https://qyapi.weixin.qq.com
+
+## 7. 企业微信应用
+## 官方文档：https://work.weixin.qq.com/api/doc/90000/90135/90236
+## 格式：corpid,corpsecret,touser,agentid,消息类型（0=卡片/1=文本/图片id=图文）
+export QYWX_AM=""               # 企业微信应用参数，逗号分隔（必填）
+
+## 8. Server 酱（微信推送）
+## 官方网站：https://sct.ftqq.com
+export PUSH_KEY=""              # Server 酱 SCHKEY 或 SendKey（必填）
+
+## 9. PushPlus（微信推送）
+## 官方网站：http://www.pushplus.plus
+export PUSH_PLUS_TOKEN=""       # PushPlus 用户令牌（必填）
+export PUSH_PLUS_USER=""        # 群组编码，一对多推送（可选）
+export PUSH_PLUS_TEMPLATE=""    # 发送模板：html/txt/json/markdown（可选）
+export PUSH_PLUS_CHANNEL=""     # 发送渠道：wechat/webhook/cp/mail/sms（可选）
+export PUSH_PLUS_WEBHOOK=""     # webhook 编码（可选）
+export PUSH_PLUS_CALLBACKURL="" # 回调地址（可选）
+export PUSH_PLUS_TO=""          # 好友令牌（可选）
+
+## 10. iGot（聚合推送）
+## 官方网站：https://push.hellyw.com
+export IGOT_PUSH_KEY=""         # iGot 推送 key（必填）
+
+## 11. pushMe
+## 官方网站：https://push.i-i.me
+export PUSHME_KEY=""            # pushMe push_key（必填）
+export PUSHME_URL=""            # 自建 PushMeServer 地址（可选）
+
+## 12. pushDeer
+## 官方网站：https://www.pushdeer.com
+export DEER_KEY=""              # PushDeer key（必填）
+export DEER_URL=""              # PushDeer 服务器地址（可选）
+
+## 13. gotify（自托管）
+## 官方网站：https://gotify.net
+export GOTIFY_URL=""            # gotify 服务器地址，如 https://push.example.de:8080（必填）
+export GOTIFY_TOKEN=""          # gotify 消息应用 token（必填）
+export GOTIFY_PRIORITY="0"      # 推送优先级，默认 0
+
+## 14. Chronocat（QQ 机器人）
+## 官方文档：https://chronocat.vercel.app
+export CHRONOCAT_URL=""         # Chronocat 连接地址，如 http://127.0.0.1:16530（必填）
+export CHRONOCAT_TOKEN=""       # 访问密钥（必填）
+export CHRONOCAT_QQ=""          # 推送目标，如 user_id=123;group_id=456（必填）
+
+## 15. go-cqhttp（QQ 机器人）
+## 官方文档：https://docs.go-cqhttp.org
+export GOBOT_URL=""             # go-cqhttp URL，如 http://127.0.0.1/send_private_msg（必填）
+export GOBOT_TOKEN=""           # access_token（可选）
+export GOBOT_QQ=""              # 推送目标，user_id=123 或 group_id=456（必填）
+
+## 16. 微加机器人
+## 官方网站：http://www.weplusbot.com
+export WE_PLUS_BOT_TOKEN=""     # 微加机器人令牌（必填）
+export WE_PLUS_BOT_RECEIVER=""  # 消息接收人（可选）
+export WE_PLUS_BOT_VERSION=""   # 版本：pro/personal，默认 pro
+
+## 17. 智能微秘书（aibotk）
+## 官方网站：http://wechat.aibotk.com
+export AIBOTK_KEY=""            # 智能微秘书 apikey（必填）
+export AIBOTK_TYPE=""           # 发送目标类型：room/contact（必填）
+export AIBOTK_NAME=""           # 群名或用户昵称（必填）
+
+## 18. Qmsg 酱（QQ 推送）
 ## 官方文档：https://qmsg.zendee.cn/docs/api/
-## qmsg 酱的 QMSG_KEY
-## qmsg 酱的 QMSG_TYPE send 为私聊，group 为群聊
-export QMSG_KEY=""
-export QMSG_TYPE=""
+export QMSG_KEY=""              # Qmsg 酱 key（必填）
+export QMSG_TYPE=""             # 推送类型：send(私聊)/group(群聊)（必填）
 
-## 20.Ntfy
-## 官方文档: https://docs.ntfy.sh
-## ntfy_url 填写ntfy地址,如https://ntfy.sh
-## ntfy_topic 填写ntfy的消息应用topic
-## ntfy_priority 填写推送消息优先级,默认为3
-## ntfy_token 填写推送token,可选
-## ntfy_username 填写推送用户名称,可选
-## ntfy_password 填写推送用户密码,可选
-## ntfy_actions 填写推送用户动作,可选
-export NTFY_URL=""
-export NTFY_TOPIC=""
-export NTFY_PRIORITY="3"
-export NTFY_TOKEN=""
-export NTFY_USERNAME=""
-export NTFY_PASSWORD=""
-export NTFY_ACTIONS=""
+## 19. Synology Chat（群晖）
+export CHAT_URL=""              # Synology Chat URL，如 http://IP:PORT/webapi/***token=（必填）
+export CHAT_TOKEN=""            # Chat token（必填）
 
-## 21. wxPusher
-## 官方文档: https://wxpusher.zjiecode.com/docs/
-## 管理后台: https://wxpusher.zjiecode.com/admin/
-## wxPusher 的 appToken
-export WXPUSHER_APP_TOKEN=""
-## wxPusher 的 topicIds，多个用英文分号;分隔 topic_ids 与 uids 至少配置一个才行
-export WXPUSHER_TOPIC_IDS=""
-## wxPusher 的 用户ID，多个用英文分号;分隔 topic_ids 与 uids 至少配置一个才行
-export WXPUSHER_UIDS=""
+## 20. wxPusher（微信推送）
+## 官方文档：https://wxpusher.zjiecode.com/docs/
+export WXPUSHER_APP_TOKEN=""    # wxPusher appToken（必填）
+export WXPUSHER_TOPIC_IDS=""    # 主题 ID，多个用分号分隔（可选）
+export WXPUSHER_UIDS=""         # 用户 ID，多个用分号分隔（可选）
 
-## 22. 自定义通知
-## 自定义通知 接收回调的URL
-export WEBHOOK_URL=""
-## WEBHOOK_BODY 和 WEBHOOK_HEADERS 多个参数时，直接换行或者使用 $'\n' 连接多行字符串，比如 export dd="line 1"$'\n'"line 2"
-export WEBHOOK_BODY=""
-export WEBHOOK_HEADERS=""
-## 支持 GET/POST/PUT
-export WEBHOOK_METHOD=""
-## 支持 text/plain、application/json、multipart/form-data、application/x-www-form-urlencoded
-export WEBHOOK_CONTENT_TYPE=""
+## 21. SMTP（邮件通知）
+## JavaScript 环境使用
+export SMTP_SERVICE=""          # 邮箱服务名，如 126/163/Gmail/QQ（必填）
+export SMTP_EMAIL=""            # SMTP 邮箱地址（必填）
+export SMTP_PASSWORD=""         # SMTP 登录密码或特殊口令（必填）
+export SMTP_NAME=""             # 收发件人姓名（可选）
+export SMTP_TO=""               # 收件邮箱，默认发给自己（可选）
 
-## Claude Code MCP 通知路由规则（可选）
-## 逗号分隔的渠道列表: dingtalk, telegram, bark, ntfy, feishu, all
-## 优先级: 事件级别 > 级别默认 > 全局默认
-export CLAUDE_NOTIFY_TITLE="Claude Code"
-export CLAUDE_NOTIFY_ROUTE_SUCCESS="ntfy,bark"
-export CLAUDE_NOTIFY_ROUTE_ERROR="telegram,dingtalk,feishu,ntfy"
-export CLAUDE_NOTIFY_ROUTE_ATTENTION="telegram,bark,dingtalk,feishu"
-export CLAUDE_NOTIFY_ROUTE_WARN="ntfy,telegram"
-export CLAUDE_NOTIFY_ROUTE_INFO="ntfy"
+## Python 环境使用（如需使用 Python 脚本）
+export SMTP_SERVER=""           # SMTP 服务器，如 smtp.exmail.qq.com:465
+export SMTP_SSL=""              # 是否使用 SSL：true/false
+
+## 22. 自定义 Webhook
+export WEBHOOK_URL=""           # 自定义 webhook URL，支持 $title 和 $content 变量（必填）
+export WEBHOOK_METHOD=""        # 请求方法：GET/POST/PUT（必填）
+export WEBHOOK_CONTENT_TYPE=""  # Content-Type，如 application/json（可选）
+export WEBHOOK_HEADERS=""       # 自定义请求头，多行用换行分隔（可选）
+export WEBHOOK_BODY=""          # 请求体，支持 $title 和 $content 变量（可选）
+
+## =============================================================================
+## 路由配置（自定义通知路由规则）
+## =============================================================================
+
+## 全局配置
+export CLAUDE_NOTIFY_TITLE="Claude Code"  # 通知标题前缀
+
+## 事件级路由（优先级最高）
+## 格式：逗号分隔的渠道列表，如 "ntfy,bark" 或 "all"（所有已配置渠道）
+export CLAUDE_NOTIFY_ROUTE_STOP=""              # Stop 事件路由
+export CLAUDE_NOTIFY_ROUTE_SUBAGENT_STOP=""     # SubagentStop 事件路由
+export CLAUDE_NOTIFY_ROUTE_NOTIFICATION=""      # Notification 事件路由
+export CLAUDE_NOTIFY_ROUTE_PRE_TOOL_USE=""      # PreToolUse 事件路由
+export CLAUDE_NOTIFY_ROUTE_POST_TOOL_USE=""     # PostToolUse 事件路由
+export CLAUDE_NOTIFY_ROUTE_PRE_COMPACT=""       # PreCompact 事件路由
+export CLAUDE_NOTIFY_ROUTE_USER_PROMPT_SUBMIT="" # UserPromptSubmit 事件路由
+
+## 级别级路由
+export CLAUDE_NOTIFY_ROUTE_SUCCESS="ntfy,bark"                  # 成功级别（任务完成）
+export CLAUDE_NOTIFY_ROUTE_ERROR="telegram,dingtalk,feishu,ntfy" # 错误级别（执行失败）
+export CLAUDE_NOTIFY_ROUTE_ATTENTION="telegram,bark,dingtalk,feishu" # 需关注级别（需要确认）
+export CLAUDE_NOTIFY_ROUTE_WARN="ntfy,telegram"                # 警告级别
+export CLAUDE_NOTIFY_ROUTE_INFO="ntfy"                         # 信息级别
+
+## 全局默认路由（当上述都未匹配时使用）
 export CLAUDE_NOTIFY_ROUTE_DEFAULT=""
 
-## 其他需要的变量，脚本中需要的变量使用 export 变量名= 声明即可
+## =============================================================================
+## 其他配置
+## =============================================================================
+
+## 一言（随机句子）
+export HITOKOTO="true"          # 是否在通知末尾添加一言，true/false
+
+## 跳过推送的标题（多个用换行分隔）
+export SKIP_PUSH_TITLE=""       # 包含这些标题的通知不推送，如 "调试\n测试\ndraft"
