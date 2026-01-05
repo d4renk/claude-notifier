@@ -1,5 +1,5 @@
 #!/bin/bash
-# 测试脚本：验证 MCP 通知 Hook 的路由逻辑
+# 测试脚本：验证 MCP 通知 Hook（从环境变量读取配置）
 
 set -euo pipefail
 
@@ -10,44 +10,64 @@ MCP_HOOK="$SCRIPT_DIR/scripts/mcp-notify-hook.sh"
 chmod +x "$MCP_HOOK"
 
 echo "=========================================="
-echo "MCP Notify Hook 路由逻辑测试"
+echo "MCP Notify Hook 测试"
 echo "=========================================="
 echo ""
 
+# 检查是否配置了至少一个渠道
+if [[ -z "${NTFY_TOPIC:-}${BARK_PUSH:-}${TG_BOT_TOKEN:-}${DD_BOT_TOKEN:-}${FSKEY:-}" ]]; then
+    echo "❌ 错误：未检测到任何通知渠道配置"
+    echo ""
+    echo "请先配置至少一个渠道的环境变量："
+    echo ""
+    echo "方式一：在 ~/.claude/settings.json 中配置："
+    echo '  {'
+    echo '    "env": {'
+    echo '      "NTFY_TOPIC": "your-topic"'
+    echo '    }'
+    echo '  }'
+    echo ""
+    echo "方式二：在当前 shell 中导出："
+    echo '  export NTFY_TOPIC="your-topic"'
+    echo ""
+    echo "支持的渠道变量："
+    echo "  - NTFY_TOPIC (ntfy)"
+    echo "  - BARK_PUSH (Bark)"
+    echo "  - TG_BOT_TOKEN + TG_USER_ID (Telegram)"
+    echo "  - DD_BOT_TOKEN + DD_BOT_SECRET (钉钉)"
+    echo "  - FSKEY (飞书)"
+    echo ""
+    echo "查看所有渠道：cat config.sample.sh"
+    exit 1
+fi
+
+echo "✅ 检测到已配置的渠道："
+[[ -n "${NTFY_TOPIC:-}" ]] && echo "  - ntfy (topic: ${NTFY_TOPIC})"
+[[ -n "${BARK_PUSH:-}" ]] && echo "  - Bark (device: ${BARK_PUSH})"
+[[ -n "${TG_BOT_TOKEN:-}" ]] && echo "  - Telegram (user: ${TG_USER_ID:-})"
+[[ -n "${DD_BOT_TOKEN:-}" ]] && echo "  - 钉钉"
+[[ -n "${FSKEY:-}" ]] && echo "  - 飞书"
+echo ""
+
 # 测试用例 1: Stop 事件（成功）
-echo "测试 1: Stop 事件（默认路由到 ntfy + bark）"
-echo '{"hook_event_name":"Stop","cwd":"/home/sun/test-project","message":"任务已完成"}' | "$MCP_HOOK"
+echo "测试 1: Stop 事件 (成功 → ntfy, bark)"
+echo '{"hook_event_name":"Stop","cwd":"'"$SCRIPT_DIR"'","message":"任务已完成"}' | "$MCP_HOOK"
 echo ""
 
-# 测试用例 2: SubagentStop 事件
-echo "测试 2: SubagentStop 事件（成功级别）"
-echo '{"hook_event_name":"SubagentStop","cwd":"/home/sun/another-project","message":"子任务完成"}' | "$MCP_HOOK"
+# 测试用例 2: 工具失败事件
+echo "测试 2: 工具失败 (错误 → telegram, dingtalk, feishu, ntfy)"
+echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_response":{"success":false,"error":"Command failed"},"cwd":"'"$SCRIPT_DIR"'"}' | "$MCP_HOOK"
 echo ""
 
-# 测试用例 3: 工具失败事件
-echo "测试 3: PostToolUse 事件（工具失败，路由到 telegram + dingtalk + feishu + ntfy）"
-echo '{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_response":{"success":false,"error":"Command failed"},"cwd":"/home/sun/error-project"}' | "$MCP_HOOK"
-echo ""
-
-# 测试用例 4: Notification 事件（需要确认）
-echo "测试 4: Notification 事件（需要用户确认，路由到 telegram + bark + dingtalk + feishu）"
-echo '{"hook_event_name":"Notification","message":"需要您的授权才能继续","cwd":"/home/sun/auth-project"}' | "$MCP_HOOK"
-echo ""
-
-# 测试用例 5: PreCompact 事件（警告）
-echo "测试 5: PreCompact 事件（警告级别，路由到 ntfy + telegram）"
-echo '{"hook_event_name":"PreCompact","message":"即将压缩上下文","cwd":"/home/sun/compact-project"}' | "$MCP_HOOK"
-echo ""
-
-# 测试用例 6: 自定义事件路由
-echo "测试 6: 使用环境变量自定义路由（CLAUDE_NOTIFY_ROUTE_STOP=bark）"
-CLAUDE_NOTIFY_ROUTE_STOP="bark" echo '{"hook_event_name":"Stop","cwd":"/home/sun/custom-project","message":"自定义路由测试"}' | "$MCP_HOOK"
+# 测试用例 3: Notification 事件（需要确认）
+echo "测试 3: 需要确认 (attention → telegram, bark, dingtalk, feishu)"
+echo '{"hook_event_name":"Notification","message":"需要您的授权才能继续","cwd":"'"$SCRIPT_DIR"'"}' | "$MCP_HOOK"
 echo ""
 
 echo "=========================================="
 echo "路由规则说明："
 echo "=========================================="
-echo "优先级: 事件级路由 > 级别级路由 > 默认路由 > 内置默认"
+echo "优先级: 事件级 > 级别级 > 默认 > 内置"
 echo ""
 echo "内置默认路由："
 echo "  - success:   ntfy, bark"
@@ -56,10 +76,10 @@ echo "  - attention: telegram, bark, dingtalk, feishu"
 echo "  - warn:      ntfy, telegram"
 echo "  - info:      ntfy"
 echo ""
-echo "可通过环境变量覆盖："
-echo "  - CLAUDE_NOTIFY_ROUTE_STOP=渠道列表"
-echo "  - CLAUDE_NOTIFY_ROUTE_SUCCESS=渠道列表"
-echo "  - CLAUDE_NOTIFY_ROUTE_ERROR=渠道列表"
-echo "  - 等等..."
+echo "自定义路由（在 settings.json 或环境变量中配置）："
+echo "  - CLAUDE_NOTIFY_ROUTE_SUCCESS=bark"
+echo "  - CLAUDE_NOTIFY_ROUTE_ERROR=all"
+echo "  - CLAUDE_NOTIFY_ROUTE_STOP=ntfy"
+echo "  等等..."
 echo ""
-echo "测试完成！"
+echo "测试完成！检查你配置的渠道是否收到通知。"

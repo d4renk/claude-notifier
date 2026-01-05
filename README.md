@@ -42,42 +42,30 @@ cargo build --release
 
 详见：[macOS 文档](claude-notifier-macos/README.md) | [Windows 文档](claude-notifier-windows/README.md)
 
-### 方式二：Linux 多渠道推送
-
-Linux 下推荐使用多渠道推送（无桌面通知依赖）：
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/zengwenliang416/claude-notifier.git
-cd claude-notifier
-
-# 2. 安装依赖
-npm install undici  # 或 yarn add undici
-
-# 3. 配置
-cp config.sample.sh config.sh
-vim config.sh  # 配置至少一个渠道（推荐 ntfy）
-
-# 4. 测试
-./test-mcp-notify.sh
-```
-
-详见：[快速入门](docs/QUICK_START.md)
-
-### 方式三：MCP 多渠道推送（所有平台）
+### 方式二：多渠道推送（所有平台通用）
 
 支持 ntfy、Bark、Telegram、钉钉、飞书等 20+ 渠道，智能路由到不同平台。
 
-**1. 配置渠道凭据**：
-```bash
-cp config.sample.sh config.sh
-# 编辑 config.sh，至少配置一个渠道
-# 推荐 ntfy（最简单）或 Bark（iOS）
-```
+**1. 配置渠道凭据** - 编辑 `~/.claude/settings.json`：
 
-**2. 配置 Hook** (`~/.claude/settings.json`)：
 ```json
 {
+  "env": {
+    "NTFY_TOPIC": "your-topic",
+    "BARK_PUSH": "your-device-key",
+    "TG_BOT_TOKEN": "your-bot-token",
+    "TG_USER_ID": "your-chat-id"
+  }
+}
+```
+
+> 💡 也可以配置在系统环境变量（`~/.bashrc`/`~/.zshrc`）中
+
+**2. 配置 Hook** - 在同一文件中添加：
+
+```json
+{
+  "env": { ... },
   "hooks": {
     "Stop": [{
       "matcher": "",
@@ -105,22 +93,51 @@ cp config.sample.sh config.sh
 
 ### 支持渠道
 
-| 渠道 | 难度 | 适用 |
-|------|------|------|
-| **ntfy** | ⭐ 最简单 | 跨平台、无需注册 |
-| **Bark** | ⭐ 简单 | iOS 用户 |
-| **Telegram** | ⭐⭐ | 全平台、功能强大 |
-| 钉钉/飞书/企微 | ⭐⭐ | 企业团队 |
+由 `notify.js` 支持的 20+ 渠道（查看 [notify.js](notify.js) 源码了解全部渠道）：
 
-完整列表：[config.sample.sh](config.sample.sh)
+| 渠道 | 难度 | 环境变量 | 适用场景 |
+|------|------|----------|----------|
+| **ntfy** | ⭐ 最简单 | `NTFY_TOPIC` | 跨平台、无需注册 |
+| **Bark** | ⭐ 简单 | `BARK_PUSH` | iOS 用户 |
+| **Telegram** | ⭐⭐ | `TG_BOT_TOKEN`, `TG_USER_ID` | 全平台、功能强大 |
+| 钉钉 | ⭐⭐ | `DD_BOT_TOKEN`, `DD_BOT_SECRET` | 企业团队 |
+| 飞书 | ⭐⭐ | `FSKEY` | 企业团队 |
+| 企业微信 | ⭐⭐ | `QYWX_KEY` | 企业团队 |
+
+**查看所有支持的渠道**：参考 [config.sample.sh](config.sample.sh)（仅供参考，不用于实际配置）
+
+### 配置方式
+
+**推荐方式一**：在 `~/.claude/settings.json` 中配置
+```json
+{
+  "env": {
+    "NTFY_TOPIC": "your-topic",
+    "BARK_PUSH": "your-device-key",
+    "CLAUDE_NOTIFY_ROUTE_SUCCESS": "bark",
+    "CLAUDE_NOTIFY_ROUTE_ERROR": "all"
+  }
+}
+```
+
+**方式二**：系统环境变量
+```bash
+# ~/.bashrc 或 ~/.zshrc
+export NTFY_TOPIC="your-topic"
+export BARK_PUSH="your-device-key"
+```
 
 ### 自定义路由
 
-在 `config.sh` 中配置：
-```bash
-# 成功只推手机，错误推所有渠道
-export CLAUDE_NOTIFY_ROUTE_SUCCESS="bark"
-export CLAUDE_NOTIFY_ROUTE_ERROR="all"
+在 `~/.claude/settings.json` 的 `env` 中配置：
+```json
+{
+  "env": {
+    "CLAUDE_NOTIFY_ROUTE_SUCCESS": "bark",
+    "CLAUDE_NOTIFY_ROUTE_ERROR": "all",
+    "CLAUDE_NOTIFY_ROUTE_ATTENTION": "telegram,bark"
+  }
+}
 ```
 
 ## 文档
@@ -138,12 +155,15 @@ claude-notifier/
 ├── scripts/                  # MCP Hook 脚本
 │   ├── mcp-notify-hook.sh   # Hook 入口
 │   └── mcp-notify.js        # 路由逻辑
-├── notify.js                 # 多渠道推送库
-├── install-linux.sh          # Linux 一键安装脚本
-├── config.sample.sh          # 配置模板
-├── LINUX.md                  # Linux 版文档
+├── notify.js                 # 多渠道推送库（20+ 渠道）
+├── config.sample.sh          # 环境变量参考（仅供查看）
 └── docs/                     # 文档
 ```
+
+**重要说明**：
+- `notify.js` 决定支持哪些渠道
+- `config.sample.sh` 仅作为环境变量参考文档，不用于实际配置
+- 实际配置应使用 `~/.claude/settings.json` 的 `env` 字段
 
 ## License
 

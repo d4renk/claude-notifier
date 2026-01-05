@@ -2,103 +2,141 @@
 
 ## 概述
 
-MCP Notify Hook 是一个智能通知路由系统，可以根据 Claude Code Hook 事件类型和级别，将通知路由到不同的渠道（钉钉、Telegram、Bark、ntfy、飞书、企业微信等）。
+MCP Notify Hook 是一个智能通知路由系统，根据 Claude Code Hook 事件类型和级别，将通知路由到不同渠道（支持 20+ 渠道）。
 
 ## 架构
 
 ```
 Claude Code Hook 事件 → mcp-notify-hook.sh → mcp-notify.js → notify.js → 多渠道并行发送
-                        (加载配置)          (路由逻辑)     (发送逻辑)
+                        (读取环境变量)      (路由逻辑)     (发送逻辑)
 ```
+
+**核心组件**：
+- `notify.js` - 多渠道推送库（决定支持哪些渠道）
+- `mcp-notify.js` - 路由逻辑（根据事件类型选择渠道）
+- `mcp-notify-hook.sh` - Hook 入口脚本
+- `config.sample.sh` - **仅作参考**，列出所有可配置的环境变量
 
 ## 核心特性
 
 1. **智能路由**：根据事件类型和级别自动选择推送渠道
-2. **多渠道并行**：支持同时推送到多个渠道
+2. **多渠道并行**：同时推送到多个渠道，互不阻塞
 3. **项目识别**：通知中自动显示项目名称
 4. **灵活配置**：支持事件级、级别级、全局默认三层路由规则
 5. **渠道过滤**：自动屏蔽未配置的渠道环境变量
 
-## 安装配置
+## 配置方式
 
-### 1. 创建配置文件
+### 推荐：settings.json（方式一）
 
-复制示例配置：
-
-```bash
-cp config.sample.sh config.sh
-```
-
-编辑 `config.sh`，填入你的通知渠道凭据（至少配置一个）：
-
-```bash
-# Bark (iOS)
-export BARK_PUSH="your-device-key"
-
-# Telegram
-export TG_BOT_TOKEN="your-bot-token"
-export TG_USER_ID="your-chat-id"
-
-# ntfy
-export NTFY_TOPIC="your-topic"
-
-# 钉钉
-export DD_BOT_TOKEN="your-token"
-export DD_BOT_SECRET="your-secret"
-
-# 飞书
-export FSKEY="your-webhook-key"
-export FSSECRET="your-secret"  # 可选
-```
-
-### 2. 配置 Claude Code Hooks
-
-编辑 `~/.claude/settings.json`，添加 Hook 配置：
+编辑 `~/.claude/settings.json`：
 
 ```json
 {
+  "env": {
+    "NTFY_TOPIC": "your-topic",
+    "BARK_PUSH": "your-device-key",
+    "TG_BOT_TOKEN": "your-bot-token",
+    "TG_USER_ID": "your-chat-id",
+    "CLAUDE_NOTIFY_ROUTE_SUCCESS": "bark",
+    "CLAUDE_NOTIFY_ROUTE_ERROR": "all"
+  },
   "hooks": {
-    "Notification": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/sun/claude-notifier/scripts/mcp-notify-hook.sh"
-          }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/sun/claude-notifier/scripts/mcp-notify-hook.sh"
-          }
-        ]
-      }
-    ]
+    "Stop": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "/绝对路径/claude-notifier/scripts/mcp-notify-hook.sh"
+      }]
+    }]
   }
 }
 ```
 
-**Hook 事件类型说明**：
+**优点**：
+- ✅ 配置集中，env 和 hooks 在同一文件
+- ✅ 自动加载，无需手动 source
+- ✅ Claude Code 官方推荐方式
 
-- `Stop`: 主任务完成时触发
-- `SubagentStop`: 子任务（Task 工具）完成时触发
-- `Notification`: Claude 需要用户确认时触发
-- `PreToolUse`: 工具执行前触发
-- `PostToolUse`: 工具执行后触发
-- `PreCompact`: 上下文压缩前触发
-- `UserPromptSubmit`: 用户提交提示后触发
+### 备选：系统环境变量（方式二）
+
+在 `~/.bashrc` 或 `~/.zshrc` 中：
+
+```bash
+# 渠道配置
+export NTFY_TOPIC="your-topic"
+export BARK_PUSH="your-device-key"
+
+# 路由配置
+export CLAUDE_NOTIFY_ROUTE_SUCCESS="bark"
+export CLAUDE_NOTIFY_ROUTE_ERROR="all"
+```
+
+然后配置 Hook（在 `~/.claude/settings.json` 中）：
+
+```json
+{
+  "hooks": {
+    "Stop": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "/绝对路径/claude-notifier/scripts/mcp-notify-hook.sh"
+      }]
+    }]
+  }
+}
+```
+
+**优点**：
+- ✅ 全局可用，所有项目共享
+- ✅ 适合已有环境变量管理的用户
+
+### ❌ 不推荐：config.sh 文件
+
+`config.sh` 文件**已废弃**，仅作为环境变量参考文档：
+- ❌ 不用于实际配置
+- ✅ 仅供查看有哪些可配置的环境变量
+- ✅ 查看各渠道需要哪些参数
+
+## Hook 事件类型
+
+| 事件 | 触发时机 | 默认级别 | 推荐用途 |
+|------|---------|---------|----------|
+| `Stop` | 主任务完成 | success | 任务完成通知 |
+| `SubagentStop` | 子任务完成 | success | 子任务完成通知 |
+| `Notification` | 需要用户确认 | attention/info | 等待确认提醒 |
+| `PreToolUse` | 工具执行前 | info | 工具执行预警 |
+| `PostToolUse` | 工具执行后 | success/error | 工具结果通知 |
+| `PreCompact` | 上下文压缩前 | warn | 压缩警告 |
+| `UserPromptSubmit` | 用户提交提示 | info | 提示提交记录 |
+
+## 支持的渠道
+
+由 `notify.js` 支持的 20+ 渠道（部分列表）：
+
+| 渠道 | 环境变量 | 说明 |
+|------|---------|------|
+| **ntfy** | `NTFY_TOPIC` | 最简单，无需注册 |
+| **Bark** | `BARK_PUSH` | iOS 推荐 |
+| **Telegram** | `TG_BOT_TOKEN`, `TG_USER_ID` | 全平台，功能强大 |
+| **钉钉** | `DD_BOT_TOKEN`, `DD_BOT_SECRET` | 企业 IM |
+| **飞书** | `FSKEY`, `FSSECRET`（可选） | 企业 IM |
+| **企业微信** | `QYWX_KEY` | 企业 IM |
+| **Server 酱** | `PUSH_KEY` | 微信推送 |
+| **PushPlus** | `PUSH_PLUS_TOKEN` | 微信推送 |
+| **gotify** | `GOTIFY_URL`, `GOTIFY_TOKEN` | 自托管 |
+| **SMTP** | `SMTP_SERVICE`, `SMTP_EMAIL`, `SMTP_PASSWORD` | 邮件 |
+
+**查看全部渠道**：
+- 查看 [notify.js](../notify.js) 源码
+- 参考 [config.sample.sh](../config.sample.sh)
 
 ## 路由规则
 
 ### 级别分类
 
-MCP Notify Hook 自动将事件分为 5 个级别：
+系统自动将事件分为 5 个级别：
 
 | 级别 | 说明 | 触发条件 | 默认渠道 |
 |------|------|----------|----------|
@@ -116,51 +154,73 @@ MCP Notify Hook 自动将事件分为 5 个级别：
 
 ### 配置环境变量
 
-在 `config.sh` 中配置：
+在 `~/.claude/settings.json` 的 `env` 字段中配置：
 
-```bash
-## 全局标题
-export CLAUDE_NOTIFY_TITLE="Claude Code"
+```json
+{
+  "env": {
+    // 事件级路由（优先级最高）
+    "CLAUDE_NOTIFY_ROUTE_STOP": "bark",
+    "CLAUDE_NOTIFY_ROUTE_NOTIFICATION": "telegram",
 
-## 事件级路由（优先级最高）
-export CLAUDE_NOTIFY_ROUTE_STOP="bark"              # Stop 事件只推送到 Bark
-export CLAUDE_NOTIFY_ROUTE_NOTIFICATION="telegram"  # Notification 只推送到 Telegram
+    // 级别级路由
+    "CLAUDE_NOTIFY_ROUTE_SUCCESS": "ntfy,bark",
+    "CLAUDE_NOTIFY_ROUTE_ERROR": "telegram,dingtalk,feishu,ntfy",
+    "CLAUDE_NOTIFY_ROUTE_ATTENTION": "telegram,bark",
+    "CLAUDE_NOTIFY_ROUTE_WARN": "ntfy,telegram",
+    "CLAUDE_NOTIFY_ROUTE_INFO": "ntfy",
 
-## 级别级路由
-export CLAUDE_NOTIFY_ROUTE_SUCCESS="ntfy,bark"                      # 成功推送到 ntfy + bark
-export CLAUDE_NOTIFY_ROUTE_ERROR="telegram,dingtalk,feishu,ntfy"   # 错误推送到所有渠道
-export CLAUDE_NOTIFY_ROUTE_ATTENTION="telegram,bark"                # 需关注推送到 telegram + bark
-export CLAUDE_NOTIFY_ROUTE_WARN="ntfy,telegram"                     # 警告推送到 ntfy + telegram
-export CLAUDE_NOTIFY_ROUTE_INFO="ntfy"                              # 信息只推送到 ntfy
+    // 全局默认路由（当前面都未匹配时使用）
+    "CLAUDE_NOTIFY_ROUTE_DEFAULT": "ntfy",
 
-## 全局默认路由（当前面都未匹配时使用）
-export CLAUDE_NOTIFY_ROUTE_DEFAULT="ntfy"
-
-## 特殊值 "all" 表示所有已配置渠道
-export CLAUDE_NOTIFY_ROUTE_ERROR="all"
+    // 特殊值 "all" 表示所有已配置渠道
+    "CLAUDE_NOTIFY_ROUTE_ERROR": "all"
+  }
+}
 ```
 
 ### 路由示例
 
 **示例 1：任务完成只推送到 iOS**
 
-```bash
-export CLAUDE_NOTIFY_ROUTE_SUCCESS="bark"
+```json
+{
+  "env": {
+    "BARK_PUSH": "your-key",
+    "CLAUDE_NOTIFY_ROUTE_SUCCESS": "bark"
+  }
+}
 ```
 
-**示例 2：错误推送到所有渠道，成功只推送到 ntfy**
+**示例 2：错误推送所有渠道，成功只推 ntfy**
 
-```bash
-export CLAUDE_NOTIFY_ROUTE_ERROR="all"
-export CLAUDE_NOTIFY_ROUTE_SUCCESS="ntfy"
+```json
+{
+  "env": {
+    "NTFY_TOPIC": "your-topic",
+    "BARK_PUSH": "your-key",
+    "TG_BOT_TOKEN": "your-token",
+    "TG_USER_ID": "your-id",
+    "CLAUDE_NOTIFY_ROUTE_SUCCESS": "ntfy",
+    "CLAUDE_NOTIFY_ROUTE_ERROR": "all"
+  }
+}
 ```
 
 **示例 3：不同事件不同渠道**
 
-```bash
-export CLAUDE_NOTIFY_ROUTE_STOP="bark"           # 主任务完成推送到手机
-export CLAUDE_NOTIFY_ROUTE_SUBAGENT_STOP="ntfy"  # 子任务完成推送到 ntfy
-export CLAUDE_NOTIFY_ROUTE_NOTIFICATION="telegram,dingtalk"  # 需确认时推送到 IM
+```json
+{
+  "env": {
+    "BARK_PUSH": "your-key",
+    "NTFY_TOPIC": "your-topic",
+    "TG_BOT_TOKEN": "your-token",
+    "TG_USER_ID": "your-id",
+    "CLAUDE_NOTIFY_ROUTE_STOP": "bark",
+    "CLAUDE_NOTIFY_ROUTE_SUBAGENT_STOP": "ntfy",
+    "CLAUDE_NOTIFY_ROUTE_NOTIFICATION": "telegram"
+  }
+}
 ```
 
 ## 通知格式
@@ -172,6 +232,16 @@ export CLAUDE_NOTIFY_ROUTE_NOTIFICATION="telegram,dingtalk"  # 需确认时推�
 ```
 
 例如：`Claude Code · claude-notifier`
+
+可通过环境变量自定义标题：
+
+```json
+{
+  "env": {
+    "CLAUDE_NOTIFY_TITLE": "AI 助手"
+  }
+}
+```
 
 ### 消息格式
 
@@ -197,19 +267,15 @@ Project: test-project
 
 ## 测试
 
-### 运行测试脚本
+### 运行测试
 
 ```bash
+# 确保已配置环境变量
+export NTFY_TOPIC="your-topic"  # 或在 settings.json 中配置
+
+# 运行测试脚本
 ./test-mcp-notify.sh
 ```
-
-测试脚本会模拟 6 个场景：
-1. Stop 事件（成功）
-2. SubagentStop 事件（成功）
-3. 工具失败事件（错误）
-4. 需要确认事件（attention）
-5. 上下文压缩事件（警告）
-6. 自定义路由事件
 
 ### 手动测试
 
@@ -219,70 +285,48 @@ echo '{"hook_event_name":"Stop","cwd":"/home/test","message":"测试完成"}' | 
 
 # 测试错误事件
 echo '{"hook_event_name":"PostToolUse","tool_response":{"success":false,"error":"测试错误"},"cwd":"/home/test"}' | ./scripts/mcp-notify-hook.sh
+
+# 测试通知库
+node -e "const {sendNotify}=require('./notify.js'); sendNotify('测试', '这是测试消息')"
 ```
 
 ## 高级用法
 
 ### 1. 禁用一言
 
-在 `config.sh` 中设置：
+在 `~/.claude/settings.json` 的 `env` 中：
 
-```bash
-export HITOKOTO="false"
-```
-
-### 2. 跳过特定标题
-
-```bash
-export SKIP_PUSH_TITLE="调试测试
-临时任务
-draft"
-```
-
-### 3. 自定义环境变量路径
-
-```bash
-export CLAUDE_NOTIFY_CONFIG=/path/to/your/config.sh
-./scripts/mcp-notify-hook.sh
-```
-
-### 4. 调试模式
-
-查看 Hook 输出：
-
-```bash
-# 在 settings.json 中添加
+```json
 {
-  "hooks": {
-    "Stop": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/sun/claude-notifier/scripts/mcp-notify-hook.sh 2>&1 | tee /tmp/hook.log"
-          }
-        ]
-      }
-    ]
+  "env": {
+    "HITOKOTO": "false"
   }
 }
 ```
 
-## 支持的渠道
+### 2. 跳过特定标题
 
-| 渠道 | 配置复杂度 | 推荐场景 | 状态 |
-|------|------------|----------|------|
-| **ntfy** | 低（只需 topic） | 快速测试、跨平台 | ✅ 推荐 |
-| **Bark** | 低（只需 device key） | iOS 用户 | ✅ 推荐 |
-| **Telegram** | 中（需创建 bot） | 全平台、重要通知 | ✅ 推荐 |
-| **钉钉** | 中（需创建机器人） | 企业团队 | ✅ 已测试 |
-| **飞书** | 中（需创建机器人） | 企业团队 | ✅ 已测试 |
-| **企业微信** | 中（需创建应用） | 企业团队 | ✅ 已测试 |
-| Server 酱 | 低 | 微信推送 | ✅ 支持 |
-| PushPlus | 低 | 微信推送 | ✅ 支持 |
+```json
+{
+  "env": {
+    "SKIP_PUSH_TITLE": "调试测试\n临时任务\ndraft"
+  }
+}
+```
 
-完整配置参考：[config.sample.sh](../config.sample.sh)
+（用 `\n` 分隔多个标题）
+
+### 3. 调试模式
+
+查看 Hook 输出：
+
+```bash
+# 方式一：直接运行测试
+./test-mcp-notify.sh
+
+# 方式二：查看实际 Hook 输出
+echo '{"hook_event_name":"Stop","cwd":"test","message":"test"}' | ./scripts/mcp-notify-hook.sh 2>&1
+```
 
 ## 故障排查
 
@@ -292,25 +336,32 @@ export CLAUDE_NOTIFY_CONFIG=/path/to/your/config.sh
 - `~/.claude/settings.json` 中 Hook 配置是否正确
 - 脚本路径是否为绝对路径
 - 脚本是否有执行权限 (`chmod +x`)
+- 重启 Claude Code 会话
 
 ### 2. 通知未发送
 
 检查：
-- `config.sh` 中凭据是否正确
+- 环境变量是否正确配置（在 `settings.json` 的 `env` 中或系统环境变量）
+- 渠道凭据是否正确
 - 网络是否可访问推送服务（如 Telegram 需要代理）
 - 查看终端输出的错误信息
+
+验证环境变量：
+
+```bash
+# 检查 settings.json
+cat ~/.claude/settings.json | jq .env
+
+# 或检查系统环境变量
+env | grep NTFY_TOPIC
+```
 
 ### 3. 路由不符合预期
 
 检查：
 - 环境变量优先级（事件 > 级别 > 默认）
 - 环境变量名称是否正确（区分大小写）
-- 使用 `echo` 验证环境变量值
-
-```bash
-source config.sh
-echo $CLAUDE_NOTIFY_ROUTE_SUCCESS
-```
+- 是否配置在 `settings.json` 的 `env` 字段中
 
 ### 4. 消息被截断
 
@@ -323,33 +374,33 @@ echo $CLAUDE_NOTIFY_ROUTE_SUCCESS
 
 ## 常见问题
 
-**Q: 为什么测试时除了 ntfy 其他都失败？**
+**Q: config.sh 文件还需要吗？**
 
-A: 测试配置使用的是虚拟凭据。请在 `config.sh` 中填入真实凭据后再测试。
+A: 不需要。`config.sh` 仅作为环境变量参考文档，实际配置应使用 `~/.claude/settings.json` 的 `env` 字段或系统环境变量。
 
 **Q: 可以只启用一个渠道吗？**
 
-A: 可以。只需在 `config.sh` 中配置一个渠道的环境变量即可。
+A: 可以。只需在 `settings.json` 的 `env` 中配置一个渠道的环境变量即可。
 
 **Q: 如何实现"成功静默，失败告警"？**
 
 A: 配置：
-```bash
-export CLAUDE_NOTIFY_ROUTE_SUCCESS=""        # 成功不推送
-export CLAUDE_NOTIFY_ROUTE_ERROR="all"       # 错误推送所有渠道
+```json
+{
+  "env": {
+    "CLAUDE_NOTIFY_ROUTE_SUCCESS": "",
+    "CLAUDE_NOTIFY_ROUTE_ERROR": "all"
+  }
+}
 ```
 
 **Q: 多个项目如何配置不同的路由？**
 
-A: 可以在项目目录下创建 `.clauderc` 或使用项目级别的环境变量配置。
+A: 可以使用系统环境变量（全局）或在各项目的 Hook 命令中传递不同的环境变量。
 
 **Q: Hook 会影响 Claude Code 性能吗？**
 
 A: 不会。通知推送是异步并行的，不会阻塞 Claude 的响应。
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
 
 ## 许可证
 
